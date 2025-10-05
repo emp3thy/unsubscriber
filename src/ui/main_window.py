@@ -3,6 +3,7 @@ Main application window for Email Unsubscriber.
 
 This module contains the MainWindow class which creates and manages
 the primary user interface including menu bar, content area, and status bar.
+Supports OAuth 2.0 for Gmail accounts.
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -15,6 +16,7 @@ from src.ui.progress_dialog import ProgressDialog
 from src.utils.threading_utils import BackgroundTask
 from src.email_client.credentials import CredentialManager
 from src.email_client.imap_client import IMAPClient
+from src.email_client.gmail_oauth import OAuthCredentialManager
 from src.email_client.email_parser import EmailParser
 from src.scoring.scorer import EmailScorer
 from src.scoring.email_grouper import EmailGrouper
@@ -36,6 +38,8 @@ class MainWindow:
         """
         self.root = root
         self.db = db_manager
+        self.cred_manager = CredentialManager()
+        self.oauth_manager = OAuthCredentialManager(db_manager, self.cred_manager)
         self.logger = logging.getLogger(__name__)
         
         # Configure window
@@ -50,6 +54,36 @@ class MainWindow:
         self._create_status_bar()
         
         self.logger.info("Main window initialized")
+    
+    def _create_imap_client(self, account: dict) -> IMAPClient:
+        """Create IMAP client with appropriate authentication method.
+        
+        Args:
+            account: Account dictionary from database with 'email', 'provider', etc.
+            
+        Returns:
+            Configured IMAPClient instance
+        """
+        email = account['email']
+        provider = account.get('provider', 'gmail')
+        
+        # Check if OAuth tokens are available for Gmail
+        if provider == 'gmail':
+            oauth_tokens = self.oauth_manager.get_oauth_tokens(email)
+            if oauth_tokens:
+                # Use OAuth authentication
+                self.logger.info(f"Using OAuth authentication for {email}")
+                return IMAPClient(
+                    email,
+                    use_oauth=True,
+                    oauth_manager=self.oauth_manager,
+                    provider=provider
+                )
+        
+        # Fall back to password authentication
+        password = self.cred_manager.decrypt_password(account['encrypted_password'])
+        self.logger.info(f"Using password authentication for {email}")
+        return IMAPClient(email, password, provider=provider)
     
     def _center_window(self):
         """Center window on screen."""
@@ -597,13 +631,9 @@ Note: App passwords are more secure than regular passwords for applications like
         
         def scan_task(progress_callback):
             """Scan task to run in background."""
-            # Decrypt password
-            cred = CredentialManager()
-            password = cred.decrypt_password(account['encrypted_password'])
-            
             # Connect to IMAP
             self.logger.info(f"Connecting to IMAP for {account['email']}")
-            client = IMAPClient(account['email'], password)
+            client = self._create_imap_client(account)
             if not client.connect():
                 error_msg = client.get_error_message() or "Failed to connect to email server"
                 raise Exception(error_msg)
@@ -898,10 +928,7 @@ Note: App passwords are more secure than regular passwords for applications like
             if not account:
                 raise Exception("No account configured")
             
-            cred_manager = CredentialManager()
-            password = cred_manager.decrypt_password(account['encrypted_password'])
-            
-            client = IMAPClient(account['email'], password)
+            client = self._create_imap_client(account)
             if not client.connect():
                 error_msg = client.get_error_message() or "Failed to connect to email server"
                 raise Exception(error_msg)
