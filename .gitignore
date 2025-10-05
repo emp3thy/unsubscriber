@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+
+# Data and sensitive files
+data/
+*.db
+*.log
+*.key
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Build
+dist/
+build/
+*.spec
+
+# OS
+.DS_Store
+Thumbs.db
+

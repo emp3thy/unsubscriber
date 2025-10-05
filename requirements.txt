@@ -1,0 +1,16 @@
+# Email Unsubscriber - MVP Dependencies
+# Python 3.8+ required
+
+# Security - Password encryption (Phase 2.1)
+cryptography>=41.0.0
+
+# HTML Parsing - Extract unsubscribe links from email body (Phase 2.4, 3.5)
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
+# HTTP Requests - Unsubscribe via HTTP GET/POST (Phase 5.3, 8.2)
+requests>=2.31.0
+
+# Note: selenium/webdriver-manager deferred to post-MVP (see Phase 8 notes)
+# Note: All other dependencies are Python built-ins (imaplib, tkinter, sqlite3, etc.)
+
