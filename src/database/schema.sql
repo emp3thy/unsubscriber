@@ -52,6 +52,17 @@ CREATE TABLE IF NOT EXISTS accounts (
     added_date DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Table 6: OAuth Tokens
+-- Stores OAuth 2.0 tokens for Gmail accounts (encrypted)
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    token_expiry TEXT,
+    updated_date DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Performance Indexes
 -- Optimize query performance for common lookup patterns
 
@@ -69,4 +80,7 @@ CREATE INDEX IF NOT EXISTS idx_action_history_sender ON action_history(sender_em
 
 -- Index for action history timestamp queries (for date-range filtering)
 CREATE INDEX IF NOT EXISTS idx_action_history_timestamp ON action_history(timestamp);
+
+-- Index for OAuth token email lookups
+CREATE INDEX IF NOT EXISTS idx_oauth_tokens_email ON oauth_tokens(email);
 

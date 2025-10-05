@@ -1,7 +1,7 @@
 """IMAP client for Email Unsubscriber
 
 Provides IMAP connectivity for Gmail and Outlook with automatic provider
-detection and secure SSL/TLS connections.
+detection and secure SSL/TLS connections. Supports OAuth 2.0 for Gmail.
 """
 
 import imaplib
@@ -10,13 +10,15 @@ import logging
 import email
 from email.header import decode_header
 from typing import Optional, List, Dict, Tuple
+from src.email_client.gmail_oauth import GmailOAuthManager, OAuthCredentialManager
 
 
 class IMAPClient:
     """IMAP client for Gmail and Outlook.
     
     Handles connection, authentication, and provides a foundation
-    for email fetching operations.
+    for email fetching operations. Supports OAuth 2.0 for Gmail and
+    password authentication for Outlook.
     """
     
     # Server configurations
@@ -25,23 +27,37 @@ class IMAPClient:
         'outlook': 'outlook.office365.com'
     }
     
-    def __init__(self, email: str, password: str, provider: str = None):
+    def __init__(self, email: str, password: str = None, provider: str = None, 
+                 use_oauth: bool = False, oauth_manager: Optional[OAuthCredentialManager] = None):
         """Initialize IMAP client.
         
         Args:
             email: Email address for authentication
-            password: App password for authentication
+            password: App password for authentication (not used if use_oauth=True)
             provider: Email provider ('gmail' or 'outlook'), auto-detected if None
+            use_oauth: Whether to use OAuth 2.0 authentication (Gmail only)
+            oauth_manager: OAuthCredentialManager instance for OAuth token management
             
         Raises:
-            ValueError: If provider cannot be detected from email
+            ValueError: If provider cannot be detected from email or invalid configuration
         """
         self.email = email
         self.password = password
         self.provider = provider or self._detect_provider(email)
+        self.use_oauth = use_oauth
+        self.oauth_manager = oauth_manager
+        self.gmail_oauth = GmailOAuthManager() if use_oauth else None
         self.imap = None
         self.error_message = ""
         self.logger = logging.getLogger(__name__)
+        
+        # Validate configuration
+        if self.use_oauth and self.provider != 'gmail':
+            raise ValueError("OAuth authentication is only supported for Gmail")
+        if self.use_oauth and not self.oauth_manager:
+            raise ValueError("oauth_manager is required when use_oauth=True")
+        if not self.use_oauth and not self.password:
+            raise ValueError("password is required when use_oauth=False")
     
     def _detect_provider(self, email: str) -> str:
         """Auto-detect email provider from address.
@@ -81,16 +97,39 @@ class IMAPClient:
             self.logger.info(f"Connecting to {server}:993...")
             self.imap = imaplib.IMAP4_SSL(server, 993)
             
-            # Authenticate
+            # Authenticate based on method
+            if self.use_oauth:
+                return self._authenticate_oauth()
+            else:
+                return self._authenticate_password()
+            
+        except socket.error as e:
+            self.logger.error(f"Network error: {e}")
+            self.error_message = "Network error. Please check your internet connection."
+            self.imap = None
+            return False
+        except Exception as e:
+            self.logger.error(f"Connection error: {e}")
+            self.error_message = "Unexpected error connecting to email server."
+            self.imap = None
+            return False
+    
+    def _authenticate_password(self) -> bool:
+        """Authenticate using password/app password.
+        
+        Returns:
+            True if authentication successful, False otherwise
+        """
+        try:
             self.imap.login(self.email, self.password)
-            self.logger.info(f"Successfully connected to {self.provider}")
+            self.logger.info(f"Successfully connected to {self.provider} using password")
             return True
             
         except imaplib.IMAP4.error as e:
             error_msg = str(e).lower()
             if 'application-specific password required' in error_msg or 'less secure' in error_msg:
                 self.logger.error(f"Gmail app password required: {e}")
-                self.error_message = "Gmail requires an App Password. Please generate one at: https://support.google.com/accounts/answer/185833"
+                self.error_message = "Gmail no longer supports password authentication. Please use OAuth 2.0 or generate an App Password."
             elif 'authentication failed' in error_msg or 'login failed' in error_msg:
                 self.logger.error(f"Authentication failed: {e}")
                 self.error_message = "Invalid email address or app password. Please check your credentials."
@@ -102,14 +141,85 @@ class IMAPClient:
                 self.error_message = "Failed to connect to email server. Please try again."
             self.imap = None
             return False
-        except socket.error as e:
-            self.logger.error(f"Network error: {e}")
-            self.error_message = "Network error. Please check your internet connection."
-            self.imap = None
-            return False
-        except Exception as e:
-            self.logger.error(f"Connection error: {e}")
-            self.error_message = "Unexpected error connecting to email server."
+    
+    def _authenticate_oauth(self) -> bool:
+        """Authenticate using OAuth 2.0 (Gmail only).
+        
+        Returns:
+            True if authentication successful, False otherwise
+        """
+        try:
+            # Get stored tokens
+            tokens = self.oauth_manager.get_oauth_tokens(self.email)
+            if not tokens:
+                self.logger.error(f"No OAuth tokens found for {self.email}")
+                self.error_message = "OAuth tokens not found. Please re-authorize the application."
+                self.imap = None
+                return False
+            
+            access_token = tokens['access_token']
+            refresh_token = tokens['refresh_token']
+            token_expiry = tokens.get('token_expiry')
+            
+            # Check if token needs refresh
+            if self.gmail_oauth.is_token_expired(token_expiry):
+                self.logger.info("Access token expired, refreshing...")
+                new_tokens = self.gmail_oauth.refresh_token(refresh_token)
+                
+                if not new_tokens:
+                    self.logger.error("Failed to refresh access token")
+                    self.error_message = "Failed to refresh OAuth token. Please re-authorize the application."
+                    self.imap = None
+                    return False
+                
+                # Update stored tokens
+                access_token = new_tokens['access_token']
+                self.oauth_manager.store_oauth_tokens(
+                    self.email,
+                    new_tokens['access_token'],
+                    new_tokens['refresh_token'],
+                    new_tokens.get('token_expiry')
+                )
+            
+            # Generate OAuth2 authentication string
+            auth_string = self.gmail_oauth.generate_oauth2_string(self.email, access_token)
+            
+            # Authenticate with IMAP using XOAUTH2
+            self.imap.authenticate('XOAUTH2', lambda x: auth_string)
+            self.logger.info(f"Successfully connected to Gmail using OAuth 2.0")
+            return True
+            
+        except imaplib.IMAP4.error as e:
+            error_msg = str(e).lower()
+            if 'invalid credentials' in error_msg or 'authentication failed' in error_msg:
+                self.logger.error(f"OAuth authentication failed: {e}")
+                # Try to refresh token one more time
+                try:
+                    tokens = self.oauth_manager.get_oauth_tokens(self.email)
+                    if tokens:
+                        new_tokens = self.gmail_oauth.refresh_token(tokens['refresh_token'])
+                        if new_tokens:
+                            self.oauth_manager.store_oauth_tokens(
+                                self.email,
+                                new_tokens['access_token'],
+                                new_tokens['refresh_token'],
+                                new_tokens.get('token_expiry')
+                            )
+                            # Retry authentication
+                            auth_string = self.gmail_oauth.generate_oauth2_string(
+                                self.email, new_tokens['access_token']
+                            )
+                            self.imap.authenticate('XOAUTH2', lambda x: auth_string)
+                            self.logger.info("Retry successful after token refresh")
+                            return True
+                except Exception as retry_error:
+                    self.logger.error(f"Retry failed: {retry_error}")
+                
+                self.error_message = "OAuth authentication failed. Please re-authorize the application."
+            else:
+                self.logger.error(f"OAuth connection error: {e}")
+                self.error_message = "Failed to connect to Gmail. Please try again."
+            
             self.imap = None
             return False
     
