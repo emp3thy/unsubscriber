@@ -11,6 +11,11 @@ lxml>=5.0.0
 # HTTP Requests - Unsubscribe via HTTP GET/POST (Phase 5.3, 8.2)
 requests>=2.31.0
 
+# OAuth 2.0 for Gmail authentication
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
+
 # Note: selenium/webdriver-manager deferred to post-MVP (see Phase 8 notes)
 # Note: All other dependencies are Python built-ins (imaplib, tkinter, sqlite3, etc.)
 

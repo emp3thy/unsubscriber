@@ -2,7 +2,8 @@
 Account setup dialog for Email Unsubscriber.
 
 This module provides a dialog for adding and testing email account credentials
-with built-in connection testing and provider auto-detection.
+with built-in connection testing and provider auto-detection. Supports OAuth 2.0
+for Gmail accounts.
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -10,7 +11,10 @@ import re
 import logging
 from src.email_client.imap_client import IMAPClient
 from src.email_client.credentials import CredentialManager
+from src.email_client.gmail_oauth import OAuthCredentialManager
+from src.email_client.auth import AuthStrategyFactory
 from src.database.db_manager import DBManager
+from src.ui.oauth_dialog import GmailOAuthDialog
 
 
 class AccountDialog(tk.Toplevel):
@@ -28,11 +32,15 @@ class AccountDialog(tk.Toplevel):
         super().__init__(parent)
         self.db = db_manager
         self.cred = cred_manager
+        self.oauth_manager = OAuthCredentialManager(db_manager, cred_manager)
+        self.auth_factory = AuthStrategyFactory(cred_manager, self.oauth_manager)
         self.connection_tested = False
+        self.is_gmail = False
+        self.use_oauth = False
         self.logger = logging.getLogger(__name__)
         
         self.title("Add Email Account")
-        self.geometry("450x350")
+        self.geometry("450x450")
         self.resizable(False, False)
         
         self._create_form_fields()
@@ -84,20 +92,38 @@ class AccountDialog(tk.Toplevel):
         )
         self.provider_label.grid(row=3, column=1, sticky=tk.W, padx=5, pady=10)
         
-        # Info label
-        info_text = (
-            "Note: For Gmail and Outlook, you must generate an App Password\n"
-            "from your account security settings. Do not use your regular password."
+        # Gmail OAuth option
+        self.oauth_frame = ttk.Frame(main_frame)
+        self.oauth_frame.grid(row=4, column=0, columnspan=2, pady=10)
+        
+        self.use_oauth_var = tk.BooleanVar(value=False)
+        self.oauth_checkbox = ttk.Checkbutton(
+            self.oauth_frame,
+            text="Use OAuth 2.0 (Recommended for Gmail)",
+            variable=self.use_oauth_var,
+            command=self._toggle_oauth
         )
-        info_label = ttk.Label(
+        self.oauth_checkbox.pack()
+        
+        ttk.Button(
+            self.oauth_frame,
+            text="Start OAuth Authorization",
+            command=self._start_oauth
+        ).pack(pady=5)
+        
+        # Hide OAuth frame initially
+        self.oauth_frame.grid_remove()
+        
+        # Info label
+        self.info_label = ttk.Label(
             main_frame, 
-            text=info_text, 
+            text="", 
             font=('', 8), 
             foreground='gray',
             wraplength=380,
             justify=tk.LEFT
         )
-        info_label.grid(row=4, column=0, columnspan=2, pady=15)
+        self.info_label.grid(row=5, column=0, columnspan=2, pady=15)
         
         # Status label for connection feedback
         self.status_label = ttk.Label(
@@ -110,7 +136,7 @@ class AccountDialog(tk.Toplevel):
         
         # Buttons
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=6, column=0, columnspan=2, pady=20)
+        button_frame.grid(row=7, column=0, columnspan=2, pady=20)
         
         self.test_btn = ttk.Button(
             button_frame, 
@@ -139,15 +165,105 @@ class AccountDialog(tk.Toplevel):
         
         if '@gmail.com' in email or '@googlemail.com' in email:
             provider = "Gmail"
+            self.is_gmail = True
+            self.oauth_frame.grid()
+            self._update_info_text()
         elif '@outlook.com' in email or '@hotmail.com' in email or '@live.com' in email:
             provider = "Outlook"
+            self.is_gmail = False
+            self.oauth_frame.grid_remove()
+            self.use_oauth_var.set(False)
+            self._update_info_text()
         elif '@yahoo.com' in email or '@ymail.com' in email:
             provider = "Yahoo"
+            self.is_gmail = False
+            self.oauth_frame.grid_remove()
+            self.use_oauth_var.set(False)
+            self._update_info_text()
         else:
             provider = "Unknown"
+            self.is_gmail = False
+            self.oauth_frame.grid_remove()
+            self.use_oauth_var.set(False)
+            self._update_info_text()
         
         self.provider_label.config(text=provider)
         self.logger.debug(f"Detected provider: {provider} for email: {email}")
+    
+    def _detect_provider_from_email(self, email: str) -> str:
+        """Detect provider from email address for internal use.
+        
+        Args:
+            email: Email address to analyze
+            
+        Returns:
+            Provider name ('gmail' or 'outlook')
+        """
+        email_lower = email.lower()
+        
+        if email_lower.endswith(('@gmail.com', '@googlemail.com')):
+            return 'gmail'
+        elif email_lower.endswith(('@outlook.com', '@hotmail.com', '@live.com')):
+            return 'outlook'
+        else:
+            # Default to gmail for unknown providers
+            return 'gmail'
+    
+    def _update_info_text(self):
+        """Update info text based on provider and auth method."""
+        if self.is_gmail and self.use_oauth_var.get():
+            info_text = (
+                "OAuth 2.0 is the recommended authentication method for Gmail.\n"
+                "Click 'Start OAuth Authorization' to begin the authorization process."
+            )
+        elif self.is_gmail:
+            info_text = (
+                "Gmail no longer supports regular passwords.\n"
+                "You can use OAuth 2.0 (recommended) or generate an App Password."
+            )
+        else:
+            info_text = (
+                "Note: For Outlook, you must generate an App Password\n"
+                "from your account security settings. Do not use your regular password."
+            )
+        self.info_label.config(text=info_text)
+    
+    def _toggle_oauth(self):
+        """Toggle OAuth authentication option."""
+        self.use_oauth = self.use_oauth_var.get()
+        self._update_info_text()
+        
+        # Update password field requirement
+        if self.use_oauth:
+            self.password_entry.config(state=tk.DISABLED)
+        else:
+            self.password_entry.config(state=tk.NORMAL)
+    
+    def _start_oauth(self):
+        """Start OAuth authorization process."""
+        email = self.email_entry.get().strip()
+        
+        # Validate email
+        if not email or not self._validate_email(email):
+            messagebox.showerror("Error", "Please enter a valid Gmail address")
+            return
+        
+        # Open OAuth dialog
+        oauth_dialog = GmailOAuthDialog(self, email, self.db, self.cred)
+        self.wait_window(oauth_dialog)
+        
+        # Check if authorization was successful
+        if oauth_dialog.was_successful():
+            self.connection_tested = True
+            self.save_btn.config(state=tk.NORMAL)
+            self.status_label.config(
+                text="✓ OAuth authorization successful!",
+                foreground='green'
+            )
+            self.logger.info(f"OAuth authorization successful for {email}")
+            
+            # Automatically save the account
+            self._save_oauth_account()
     
     def _toggle_password(self):
         """Toggle password visibility."""
@@ -173,6 +289,15 @@ class AccountDialog(tk.Toplevel):
     def _test_connection(self):
         """Test IMAP connection."""
         email = self.email_entry.get().strip()
+        
+        # Check if using OAuth
+        if self.use_oauth_var.get():
+            messagebox.showinfo(
+                "OAuth Mode",
+                "For OAuth authentication, please use the 'Start OAuth Authorization' button."
+            )
+            return
+        
         password = self.password_entry.get()
         
         # Validate inputs
@@ -191,7 +316,12 @@ class AccountDialog(tk.Toplevel):
         
         try:
             self.logger.info(f"Testing connection for {email}")
-            client = IMAPClient(email, password)
+            
+            # Create authentication strategy and client
+            provider = self._detect_provider_from_email(email)
+            encrypted_password = self.cred.encrypt_password(password)
+            auth_strategy = self.auth_factory.create_strategy(email, provider, encrypted_password)
+            client = IMAPClient(email, auth_strategy, provider)
             
             if client.connect():
                 self.connection_tested = True
@@ -240,6 +370,15 @@ class AccountDialog(tk.Toplevel):
             )
             return
         
+        # Check if using OAuth - OAuth accounts are saved automatically
+        if self.use_oauth_var.get():
+            messagebox.showinfo(
+                "OAuth Account",
+                "OAuth account was already saved during authorization."
+            )
+            self.destroy()
+            return
+        
         email = self.email_entry.get().strip()
         password = self.password_entry.get()
         provider = self.provider_label.cget("text").lower()
@@ -263,6 +402,12 @@ class AccountDialog(tk.Toplevel):
             error_msg = str(e)
             messagebox.showerror("Error", f"Failed to save account: {error_msg}")
             self.logger.error(f"Error saving account {email}: {error_msg}")
+    
+    def _save_oauth_account(self):
+        """Save OAuth account (called automatically after successful authorization)."""
+        # OAuth tokens are already saved by the OAuth dialog
+        # Just close this dialog
+        self.destroy()
 
 
 class SettingsDialog(tk.Toplevel):

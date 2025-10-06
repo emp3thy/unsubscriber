@@ -10,6 +10,7 @@ A Python application that helps you manage unwanted emails by identifying sender
 - **Whitelist Protection**: Protect important senders from accidental operations
 - **Score-based Prioritization**: Senders are ranked by how "unwanted" they appear to be
 - **Progress Tracking**: Visual progress indicators during long operations
+- **OAuth 2.0 Support**: Secure Gmail authentication using OAuth 2.0 (recommended method)
 - **Cross-platform**: Works on Windows, macOS, and Linux
 
 ## Installation
@@ -76,7 +77,31 @@ Hover over score values to see the breakdown of how each score was calculated.
 
 ## Email Provider Setup
 
-### Gmail
+### Gmail (OAuth 2.0 - Recommended)
+
+Gmail now uses OAuth 2.0 for secure authentication. This is the recommended method:
+
+1. **Set up OAuth credentials** (one-time setup):
+   - Follow the [detailed OAuth setup guide](OAUTH_SETUP_INSTRUCTIONS.md)
+   - Create a Google Cloud project and enable Gmail API
+   - Download OAuth credentials and save as `data/gmail_credentials.json`
+
+2. **Add account in application**:
+   - Click `File > Add Account`
+   - Enter your Gmail address
+   - Check "Use OAuth 2.0 (Recommended for Gmail)"
+   - Click "Start OAuth Authorization"
+   - Browser will open for you to authorize
+   - Grant permissions and return to the application
+
+3. **That's it!**:
+   - You only need to authorize once
+   - Tokens are automatically refreshed
+   - No passwords needed or stored
+
+### Gmail (App Password - Alternative)
+
+If you prefer not to use OAuth:
 
 1. **Enable 2-Factor Authentication**:
    - Go to your Google Account settings
@@ -215,6 +240,12 @@ For issues, questions, or feature requests:
 - Create a new issue with detailed information
 
 ## Changelog
+
+### Version 1.1.0
+- **NEW**: Gmail OAuth 2.0 authentication support
+- **NEW**: Automatic token refresh for seamless access
+- **NEW**: Secure encrypted token storage
+- **IMPROVED**: Better Gmail authentication experience
 
 ### Version 1.0.0
 - Initial release

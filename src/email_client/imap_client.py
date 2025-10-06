@@ -1,7 +1,8 @@
 """IMAP client for Email Unsubscriber
 
 Provides IMAP connectivity for Gmail and Outlook with automatic provider
-detection and secure SSL/TLS connections.
+detection and secure SSL/TLS connections. Uses pluggable authentication
+strategies for different providers and authentication methods.
 """
 
 import imaplib
@@ -10,13 +11,15 @@ import logging
 import email
 from email.header import decode_header
 from typing import Optional, List, Dict, Tuple
+from .auth.auth_strategy import IMAPAuthStrategy
 
 
 class IMAPClient:
     """IMAP client for Gmail and Outlook.
     
-    Handles connection, authentication, and provides a foundation
-    for email fetching operations.
+    Handles connection and email operations using pluggable authentication
+    strategies. The authentication method is determined by the strategy
+    provided during initialization.
     """
     
     # Server configurations
@@ -25,22 +28,21 @@ class IMAPClient:
         'outlook': 'outlook.office365.com'
     }
     
-    def __init__(self, email: str, password: str, provider: str = None):
+    def __init__(self, email: str, auth_strategy: IMAPAuthStrategy, provider: str = None):
         """Initialize IMAP client.
         
         Args:
             email: Email address for authentication
-            password: App password for authentication
+            auth_strategy: Authentication strategy to use
             provider: Email provider ('gmail' or 'outlook'), auto-detected if None
             
         Raises:
             ValueError: If provider cannot be detected from email
         """
         self.email = email
-        self.password = password
+        self.auth_strategy = auth_strategy
         self.provider = provider or self._detect_provider(email)
         self.imap = None
-        self.error_message = ""
         self.logger = logging.getLogger(__name__)
     
     def _detect_provider(self, email: str) -> str:
@@ -65,7 +67,7 @@ class IMAPClient:
             raise ValueError(f"Unsupported email provider: {email}")
     
     def connect(self) -> bool:
-        """Connect to IMAP server.
+        """Connect to IMAP server and authenticate using the configured strategy.
         
         Returns:
             True if connection successful, False otherwise
@@ -81,37 +83,25 @@ class IMAPClient:
             self.logger.info(f"Connecting to {server}:993...")
             self.imap = imaplib.IMAP4_SSL(server, 993)
             
-            # Authenticate
-            self.imap.login(self.email, self.password)
-            self.logger.info(f"Successfully connected to {self.provider}")
-            return True
+            # Authenticate using the strategy
+            success = self.auth_strategy.authenticate(self.imap, self.email)
             
-        except imaplib.IMAP4.error as e:
-            error_msg = str(e).lower()
-            if 'application-specific password required' in error_msg or 'less secure' in error_msg:
-                self.logger.error(f"Gmail app password required: {e}")
-                self.error_message = "Gmail requires an App Password. Please generate one at: https://support.google.com/accounts/answer/185833"
-            elif 'authentication failed' in error_msg or 'login failed' in error_msg:
-                self.logger.error(f"Authentication failed: {e}")
-                self.error_message = "Invalid email address or app password. Please check your credentials."
-            elif 'connection refused' in error_msg or 'network is unreachable' in error_msg:
-                self.logger.error(f"Network error: {e}")
-                self.error_message = "Cannot connect to email server. Please check your internet connection."
+            if success:
+                self.logger.info(f"Successfully connected to {self.provider}")
             else:
-                self.logger.error(f"Connection error: {e}")
-                self.error_message = "Failed to connect to email server. Please try again."
-            self.imap = None
-            return False
+                self.imap = None
+            
+            return success
+            
         except socket.error as e:
             self.logger.error(f"Network error: {e}")
-            self.error_message = "Network error. Please check your internet connection."
             self.imap = None
             return False
         except Exception as e:
             self.logger.error(f"Connection error: {e}")
-            self.error_message = "Unexpected error connecting to email server."
             self.imap = None
             return False
+    
     
     def disconnect(self):
         """Close IMAP connection."""
@@ -133,12 +123,12 @@ class IMAPClient:
         return self.imap is not None
 
     def get_error_message(self) -> str:
-        """Get the last error message from connection attempt.
+        """Get the last error message from authentication attempt.
 
         Returns:
             Error message string, empty if no error
         """
-        return self.error_message
+        return self.auth_strategy.get_error_message()
     
     def get_email_count(self) -> int:
         """Get total number of emails in INBOX.
