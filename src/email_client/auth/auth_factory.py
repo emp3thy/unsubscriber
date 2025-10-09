@@ -53,7 +53,7 @@ class AuthStrategyFactory:
             if oauth_tokens:
                 self.logger.info(f"Using OAuth authentication for {email}")
                 return GmailOAuthStrategy(self.oauth_manager)
-        
+
         # Fall back to password authentication if available
         if encrypted_password:
             try:

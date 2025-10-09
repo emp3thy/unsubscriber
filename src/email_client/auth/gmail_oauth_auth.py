@@ -7,6 +7,7 @@ token refresh and XOAUTH2 SASL authentication.
 
 import imaplib
 import logging
+import base64
 from typing import Optional, Dict, Any
 from .auth_strategy import IMAPAuthStrategy
 from ..gmail_oauth import GmailOAuthManager
@@ -76,13 +77,33 @@ class GmailOAuthStrategy(IMAPAuthStrategy):
                 )
                 self.logger.info("OAuth tokens refreshed successfully")
             
-            # Generate OAuth2 authentication string
-            auth_string = self.gmail_oauth.generate_oauth2_string(email, access_token)
+            # Use Google's recommended XOAUTH2 authentication approach
+            # Generate the auth string using the exact format Gmail expects
+            auth_string = f'user={email}\001auth=Bearer {access_token}\001\001'
+            auth_bytes = base64.b64encode(auth_string.encode('ascii')).decode('ascii')
             
-            # Authenticate with IMAP using XOAUTH2
-            imap_connection.authenticate('XOAUTH2', lambda x: auth_string)
-            self.logger.info(f"Successfully authenticated {email} using OAuth 2.0")
-            return True
+            self.logger.debug(f"Using direct XOAUTH2 with access token: {access_token[:20]}...")
+            
+            # Try direct XOAUTH2 authentication without callback
+            try:
+                # Method 1: Direct authenticate call with base64 string
+                imap_connection.authenticate('XOAUTH2', lambda x: auth_bytes.encode('ascii'))
+                self.logger.info(f"Successfully authenticated {email} using OAuth 2.0 (method 1)")
+                return True
+            except Exception as e1:
+                self.logger.debug(f"Method 1 failed: {e1}")
+                
+                try:
+                    # Method 2: Use simple callback returning bytes
+                    def simple_auth(challenge):
+                        return base64.b64encode(auth_string.encode('ascii'))
+                    
+                    imap_connection.authenticate('XOAUTH2', simple_auth)
+                    self.logger.info(f"Successfully authenticated {email} using OAuth 2.0 (method 2)")
+                    return True
+                except Exception as e2:
+                    self.logger.debug(f"Method 2 failed: {e2}")
+                    raise e2  # Re-raise the last exception
             
         except imaplib.IMAP4.error as e:
             error_msg = str(e).lower()
@@ -135,13 +156,22 @@ class GmailOAuthStrategy(IMAPAuthStrategy):
                     new_tokens.get('token_expiry')
                 )
                 
-                # Retry authentication
-                auth_string = self.gmail_oauth.generate_oauth2_string(
-                    email, new_tokens['access_token']
-                )
-                imap_connection.authenticate('XOAUTH2', lambda x: auth_string)
-                self.logger.info("Retry successful after token refresh")
-                return True
+                # Retry authentication with direct method
+                access_token = new_tokens['access_token']
+                auth_string = f'user={email}\001auth=Bearer {access_token}\001\001'
+                auth_bytes = base64.b64encode(auth_string.encode('ascii')).decode('ascii')
+                
+                try:
+                    imap_connection.authenticate('XOAUTH2', lambda x: auth_bytes.encode('ascii'))
+                    self.logger.info("Retry successful after token refresh (method 1)")
+                    return True
+                except Exception:
+                    def simple_auth(challenge):
+                        return base64.b64encode(auth_string.encode('ascii'))
+                    
+                    imap_connection.authenticate('XOAUTH2', simple_auth)
+                    self.logger.info("Retry successful after token refresh (method 2)")
+                    return True
                 
         except Exception as retry_error:
             self.logger.error(f"Token refresh retry failed: {retry_error}")

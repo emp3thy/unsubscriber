@@ -19,6 +19,7 @@ from src.email_client.imap_client import IMAPClient
 from src.email_client.gmail_oauth import OAuthCredentialManager
 from src.email_client.auth import AuthStrategyFactory
 from src.email_client.email_parser import EmailParser
+from src.email_client.client_factory import create_email_client
 from src.scoring.scorer import EmailScorer
 from src.scoring.email_grouper import EmailGrouper
 from src.unsubscribe.strategy_chain import StrategyChain
@@ -57,25 +58,20 @@ class MainWindow:
         
         self.logger.info("Main window initialized")
     
-    def _create_imap_client(self, account: dict) -> IMAPClient:
-        """Create IMAP client with appropriate authentication strategy.
+    def _create_email_client(self, account: dict):
+        """Create email client (Gmail API or IMAP) based on account.
         
         Args:
             account: Account dictionary from database with 'email', 'provider', etc.
             
         Returns:
-            Configured IMAPClient instance
+            Email client instance (GmailAPIClient or IMAPClient)
         """
-        email = account['email']
-        provider = account.get('provider', 'gmail')
-        encrypted_password = account.get('encrypted_password')
-        
-        # Use factory to create appropriate authentication strategy
-        auth_strategy = self.auth_factory.create_strategy(
-            email, provider, encrypted_password
+        return create_email_client(
+            account=account,
+            auth_factory=self.auth_factory,
+            oauth_manager=self.oauth_manager
         )
-        
-        return IMAPClient(email, auth_strategy, provider)
     
     def _center_window(self):
         """Center window on screen."""
@@ -202,6 +198,15 @@ class MainWindow:
             state=tk.DISABLED
         )
         self.unsub_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Delete Selected button
+        self.delete_btn = ttk.Button(
+            toolbar,
+            text="Delete Selected",
+            command=self.delete_selected,
+            state=tk.DISABLED
+        )
+        self.delete_btn.pack(side=tk.LEFT, padx=5)
         
         # Note: sender_table binding will be added after sender_table is created
         
@@ -438,10 +443,7 @@ class MainWindow:
             if not account:
                 raise Exception("No account configured")
             
-            cred_manager = CredentialManager()
-            password = cred_manager.decrypt_password(account['encrypted_password'])
-            
-            client = IMAPClient(account['email'], password)
+            client = self._create_email_client(account)
             if not client.connect():
                 error_msg = client.get_error_message() or "Failed to connect to email server"
                 raise Exception(error_msg)
@@ -623,9 +625,9 @@ Note: App passwords are more secure than regular passwords for applications like
         
         def scan_task(progress_callback):
             """Scan task to run in background."""
-            # Connect to IMAP
-            self.logger.info(f"Connecting to IMAP for {account['email']}")
-            client = self._create_imap_client(account)
+            # Connect to email server (Gmail API or IMAP)
+            self.logger.info(f"Connecting to email server for {account['email']}")
+            client = self._create_email_client(account)
             if not client.connect():
                 error_msg = client.get_error_message() or "Failed to connect to email server"
                 raise Exception(error_msg)
@@ -706,9 +708,10 @@ Note: App passwords are more secure than regular passwords for applications like
         bg_task.run(scan_task, on_progress, on_complete)
     
     def _on_sender_selection_changed(self, event=None):
-        """Enable/disable unsubscribe button based on selection."""
+        """Enable/disable unsubscribe and delete buttons based on selection."""
         selected = self.sender_table.get_selected()
         self.unsub_btn.config(state=tk.NORMAL if selected else tk.DISABLED)
+        self.delete_btn.config(state=tk.NORMAL if selected else tk.DISABLED)
     
     def unsubscribe_selected(self):
         """Unsubscribe from selected senders."""
@@ -731,8 +734,9 @@ Note: App passwords are more secure than regular passwords for applications like
         
         self.logger.info(f"Starting unsubscribe for {count} senders")
         
-        # Disable button during operation
+        # Disable buttons during operation
         self.unsub_btn.config(state=tk.DISABLED)
+        self.delete_btn.config(state=tk.DISABLED)
         self.status_bar.config(text="Starting unsubscribe...")
         
         # Create progress dialog
@@ -803,6 +807,7 @@ Note: App passwords are more secure than regular passwords for applications like
             """Handle completion."""
             progress.destroy()
             self.unsub_btn.config(state=tk.NORMAL)
+            self.delete_btn.config(state=tk.NORMAL)
             
             if error:
                 self.status_bar.config(text="Unsubscribe failed")
@@ -838,6 +843,131 @@ Note: App passwords are more secure than regular passwords for applications like
         
         # Start unsubscribe
         bg_task.run(unsubscribe_task, on_progress, on_complete)
+    
+    def delete_selected(self):
+        """Delete emails from selected senders."""
+        selected = self.sender_table.get_selected()
+        if not selected:
+            return
+        
+        # Calculate total count
+        sender_count = len(selected)
+        total_email_count = sum(s.get('total_count', 0) for s in selected)
+        
+        # Build confirmation message
+        msg = f"Delete all emails from {sender_count} selected sender(s)?\n\n"
+        msg += f"This will permanently delete approximately {total_email_count:,} email(s).\n\n"
+        msg += "⚠️ This action cannot be undone!"
+        
+        # Show confirmation dialog
+        result = messagebox.askyesno(
+            "Confirm Deletion",
+            msg,
+            icon='warning'
+        )
+        
+        if not result:
+            return
+        
+        self.logger.info(f"Starting deletion for {sender_count} selected senders")
+        
+        # Disable buttons during operation
+        self.unsub_btn.config(state=tk.DISABLED)
+        self.delete_btn.config(state=tk.DISABLED)
+        self.status_bar.config(text="Starting deletion...")
+        
+        # Create progress dialog
+        progress = ProgressDialog(self.root, "Deleting Emails")
+        
+        # Create background task
+        bg_task = BackgroundTask(self.root)
+        progress.set_cancel_callback(bg_task.cancel)
+        
+        def delete_task(progress_callback):
+            """Delete emails in background thread."""
+            # Get account and connect
+            account = self.db.get_primary_account()
+            if not account:
+                raise Exception("No account configured")
+            
+            client = self._create_email_client(account)
+            if not client.connect():
+                error_msg = client.get_error_message() or "Failed to connect to email server"
+                raise Exception(error_msg)
+            
+            results = {
+                'deleted_senders': 0,
+                'failed_senders': 0,
+                'total_emails_deleted': 0,
+                'deleted_list': []
+            }
+            
+            try:
+                for i, sender_data in enumerate(selected):
+                    if bg_task.is_cancelled:
+                        break
+                    
+                    sender = sender_data.get('sender', 'unknown')
+                    progress_callback(i, sender_count, f"Deleting emails from {sender}")
+                    
+                    # Delete emails from this sender
+                    deleted, message = client.delete_emails_from_sender(sender, self.db)
+                    
+                    if deleted > 0:
+                        results['deleted_senders'] += 1
+                        results['total_emails_deleted'] += deleted
+                        results['deleted_list'].append(sender)
+                        self.sender_table.update_sender_status(sender, f'Deleted ({deleted} emails)')
+                        self.logger.info(f"Deleted {deleted} emails from {sender}")
+                    else:
+                        results['failed_senders'] += 1
+                        self.sender_table.update_sender_status(sender, f'Delete failed')
+                        self.logger.warning(f"Failed to delete emails from {sender}: {message}")
+                
+            finally:
+                client.disconnect()
+            
+            return results
+        
+        def on_progress(current, total, message):
+            """Update progress dialog."""
+            progress.update_progress(current, total, message)
+        
+        def on_complete(results, error=None):
+            """Handle completion."""
+            progress.destroy()
+            self.unsub_btn.config(state=tk.NORMAL)
+            self.delete_btn.config(state=tk.NORMAL)
+            
+            if error:
+                self.status_bar.config(text="Deletion failed")
+                messagebox.showerror("Error", f"Failed to delete emails: {error}")
+                self.logger.error(f"Deletion operation failed: {error}")
+            elif results:
+                deleted_senders = results['deleted_senders']
+                total_emails = results['total_emails_deleted']
+                failed_senders = results['failed_senders']
+                
+                # Show summary
+                msg = f"Deletion complete:\n\n"
+                msg += f"  Senders processed: {deleted_senders}\n"
+                msg += f"  Total emails deleted: {total_emails:,}\n"
+                if failed_senders > 0:
+                    msg += f"  Failed: {failed_senders}\n"
+                
+                messagebox.showinfo("Deletion Complete", msg)
+                self.logger.info(f"Deletion complete: {total_emails} emails from {deleted_senders} senders")
+                
+                # Update status bar
+                self.status_bar.config(
+                    text=f"Deleted {total_emails:,} emails from {deleted_senders} senders"
+                )
+            else:
+                self.status_bar.config(text="Deletion cancelled")
+                self.logger.info("Deletion cancelled by user")
+        
+        # Start deletion
+        bg_task.run(delete_task, on_progress, on_complete)
     
     def _offer_bulk_delete_after_unsubscribe(self, successful_senders):
         """
@@ -920,7 +1050,7 @@ Note: App passwords are more secure than regular passwords for applications like
             if not account:
                 raise Exception("No account configured")
             
-            client = self._create_imap_client(account)
+            client = self._create_email_client(account)
             if not client.connect():
                 error_msg = client.get_error_message() or "Failed to connect to email server"
                 raise Exception(error_msg)

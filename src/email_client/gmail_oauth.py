@@ -20,8 +20,9 @@ from cryptography.fernet import Fernet
 class GmailOAuthManager:
     """Manages Gmail OAuth 2.0 authentication and token operations."""
     
-    # Gmail IMAP scope - allows full mail access (read, send, delete)
-    SCOPES = ['https://mail.google.com/']
+    # Gmail API scope - allows full mail access (read, send, delete)
+    # Using googleapis.com scope for Gmail API (includes IMAP access)
+    SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
     
     def __init__(self, credentials_file: str = 'data/gmail_credentials.json'):
         """Initialize Gmail OAuth manager.
@@ -139,10 +140,15 @@ class GmailOAuthManager:
             access_token: OAuth access token
             
         Returns:
-            Base64-encoded OAuth2 authentication string
+            Base64-encoded OAuth2 authentication string as bytes
         """
+        # Format per RFC 7628: user=<email>\x01auth=Bearer <token>\x01\x01
+        # Make sure Bearer is capitalized and format is exact
         auth_string = f'user={email}\x01auth=Bearer {access_token}\x01\x01'
-        return base64.b64encode(auth_string.encode('utf-8'))
+        self.logger.debug(f"Raw OAuth2 string: {repr(auth_string)}")
+        encoded = base64.b64encode(auth_string.encode('utf-8'))
+        self.logger.debug(f"Encoded OAuth2 string: {encoded}")
+        return encoded
     
     def _get_client_id(self) -> str:
         """Get OAuth client ID from credentials file.
@@ -185,6 +191,7 @@ class OAuthCredentialManager:
         """
         self.db = db_manager
         self.cred = cred_manager
+        self.gmail_oauth = GmailOAuthManager()
         self.logger = logging.getLogger(__name__)
     
     def store_oauth_tokens(self, email: str, access_token: str, 

@@ -370,13 +370,19 @@ class AccountDialog(tk.Toplevel):
             )
             return
         
-        # Check if using OAuth - OAuth accounts are saved automatically
+        # Check if using OAuth - OAuth accounts are saved automatically during authorization
         if self.use_oauth_var.get():
-            messagebox.showinfo(
-                "OAuth Account",
-                "OAuth account was already saved during authorization."
-            )
-            self.destroy()
+            if self.connection_tested:
+                messagebox.showinfo(
+                    "OAuth Account",
+                    "OAuth account was already saved during authorization."
+                )
+                self.destroy()
+            else:
+                messagebox.showwarning(
+                    "OAuth Required",
+                    "Please complete OAuth authorization first using the 'Start OAuth Authorization' button."
+                )
             return
         
         email = self.email_entry.get().strip()
@@ -405,9 +411,28 @@ class AccountDialog(tk.Toplevel):
     
     def _save_oauth_account(self):
         """Save OAuth account (called automatically after successful authorization)."""
-        # OAuth tokens are already saved by the OAuth dialog
-        # Just close this dialog
-        self.destroy()
+        email = self.email_entry.get().strip()
+        
+        try:
+            self.logger.info(f"Saving OAuth account: {email}")
+            
+            # For OAuth accounts, we don't store a password, but we still need the account record
+            # Use a placeholder for encrypted_password since OAuth uses tokens
+            oauth_placeholder = "OAUTH_TOKEN_AUTH"
+            
+            # Save to accounts database
+            if self.db.add_account(email, oauth_placeholder, "gmail"):
+                messagebox.showinfo("Success", f"Gmail account {email} saved successfully!\n\nOAuth authorization is complete and the account is ready to use.")
+                self.logger.info(f"OAuth account saved successfully: {email}")
+                self.destroy()
+            else:
+                messagebox.showerror("Error", "Failed to save OAuth account to database.")
+                self.logger.error(f"Failed to save OAuth account to database: {email}")
+                
+        except Exception as e:
+            error_msg = str(e)
+            messagebox.showerror("Error", f"Failed to save OAuth account: {error_msg}")
+            self.logger.error(f"Error saving OAuth account {email}: {error_msg}")
 
 
 class SettingsDialog(tk.Toplevel):

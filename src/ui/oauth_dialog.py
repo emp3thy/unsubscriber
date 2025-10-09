@@ -107,23 +107,37 @@ class GmailOAuthDialog(tk.Toplevel):
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(pady=10)
         
-        self.auth_btn = ttk.Button(
+        self.auth_btn = tk.Button(
             button_frame,
             text="Start Authorization",
-            command=self._start_authorization
+            command=self._start_authorization,
+            width=20,
+            height=2,
+            bg='#0078d4',
+            fg='white',
+            font=('Arial', 9, 'bold'),
+            relief='raised',
+            bd=2
         )
         self.auth_btn.pack(side=tk.LEFT, padx=5)
         
-        self.cancel_btn = ttk.Button(
+        self.cancel_btn = tk.Button(
             button_frame,
             text="Cancel",
-            command=self._cancel
+            command=self._cancel,
+            width=15,
+            height=2,
+            bg='#f0f0f0',
+            fg='black',
+            font=('Arial', 9),
+            relief='raised',
+            bd=2
         )
         self.cancel_btn.pack(side=tk.LEFT, padx=5)
     
     def _start_authorization(self):
         """Start the OAuth authorization process."""
-        self.auth_btn.config(state=tk.DISABLED)
+        self.auth_btn.config(state=tk.DISABLED, bg='#cccccc')
         self.status_label.config(text="Starting authorization...", foreground='blue')
         self.progress.start()
         
@@ -177,7 +191,7 @@ class GmailOAuthDialog(tk.Toplevel):
         self.success = True
         
         # Update buttons
-        self.auth_btn.config(text="Done", state=tk.NORMAL, command=self.destroy)
+        self.auth_btn.config(text="Done", state=tk.NORMAL, command=self.destroy, bg='#28a745')
         self.cancel_btn.config(text="Close", command=self.destroy)
         
         messagebox.showinfo(
@@ -199,7 +213,7 @@ class GmailOAuthDialog(tk.Toplevel):
         )
         
         # Re-enable auth button
-        self.auth_btn.config(state=tk.NORMAL)
+        self.auth_btn.config(state=tk.NORMAL, bg='#0078d4')
         
         messagebox.showerror(
             "Authorization Failed",

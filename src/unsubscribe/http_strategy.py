@@ -36,7 +36,6 @@ class HTTPStrategy(UnsubscribeStrategy):
         super().__init__()
         self.timeout = 15  # Longer timeout for page loading
         self.max_links = 3
-        self.max_redirects = 5
         self.max_retries = 3
         
         # User-agent rotation to avoid bot detection
@@ -232,8 +231,7 @@ class HTTPStrategy(UnsubscribeStrategy):
                 url,
                 headers=headers,
                 timeout=self.timeout,
-                allow_redirects=True,
-                max_redirects=self.max_redirects
+                allow_redirects=True
             )
             
             # Check if successful (by status code or content)
@@ -251,8 +249,7 @@ class HTTPStrategy(UnsubscribeStrategy):
                         data={'email': sender},
                         headers=headers,
                         timeout=self.timeout,
-                        allow_redirects=True,
-                        max_redirects=self.max_redirects
+                        allow_redirects=True
                     )
                     
                     if self._is_success_response(response):
@@ -265,8 +262,7 @@ class HTTPStrategy(UnsubscribeStrategy):
                         json={'email': sender},
                         headers=headers,
                         timeout=self.timeout,
-                        allow_redirects=True,
-                        max_redirects=self.max_redirects
+                        allow_redirects=True
                     )
                     
                     if self._is_success_response(response):
@@ -277,8 +273,7 @@ class HTTPStrategy(UnsubscribeStrategy):
                         url,
                         headers=headers,
                         timeout=self.timeout,
-                        allow_redirects=True,
-                        max_redirects=self.max_redirects
+                        allow_redirects=True
                     )
                     
                     if self._is_success_response(response):

@@ -8,7 +8,7 @@ import email
 from email.message import Message
 from email.header import decode_header
 from email.utils import parseaddr
-from typing import Dict, List
+from typing import Dict, List, Union
 import logging
 import re
 from bs4 import BeautifulSoup
@@ -25,16 +25,36 @@ class EmailParser:
         """Initialize email parser."""
         self.logger = logging.getLogger(__name__)
     
-    def parse_email(self, raw_email: bytes) -> Dict:
-        """Parse raw email bytes into structured data.
+    def parse_email(self, raw_email: Union[bytes, Dict]) -> Dict:
+        """Parse raw email data into structured format.
         
         Args:
-            raw_email: Raw email data as bytes
+            raw_email: Raw email data as bytes (IMAP) or dict (Gmail API)
             
         Returns:
             Dictionary with keys: sender, subject, date, body_text, body_html
         """
         try:
+            # Handle Gmail API dict format
+            if isinstance(raw_email, dict):
+                # Parse List-Unsubscribe header into unsubscribe_links list
+                list_unsub_header = raw_email.get('list_unsubscribe', '')
+                unsubscribe_links = self._parse_list_unsubscribe_header(list_unsub_header)
+                
+                return {
+                    'sender': raw_email.get('sender', ''),
+                    'sender_name': raw_email.get('sender_name', ''),
+                    'subject': raw_email.get('subject', ''),
+                    'date': raw_email.get('date', ''),
+                    'body_text': '',  # Gmail API uses snippet initially
+                    'body_html': '',
+                    'snippet': raw_email.get('snippet', ''),
+                    'message_id': raw_email.get('message_id', ''),
+                    'unsubscribe_links': unsubscribe_links,
+                    'is_unread': raw_email.get('is_unread', False)
+                }
+            
+            # Handle IMAP bytes format
             msg = email.message_from_bytes(raw_email)
             
             return {
@@ -251,6 +271,34 @@ class EmailParser:
         # mailto: links with unsubscribe keywords
         mailto_pattern = r'mailto:[^\s<>"]+(?:unsubscribe|opt-out|remove)[^\s<>"]*'
         links.extend(re.findall(mailto_pattern, text, re.IGNORECASE))
+        
+        return links
+    
+    def _parse_list_unsubscribe_header(self, header_value: str) -> List[str]:
+        """Parse List-Unsubscribe header into list of URLs.
+        
+        The List-Unsubscribe header format is: <url1>, <url2>
+        Example: <mailto:unsub@example.com>, <https://example.com/unsub>
+        
+        Args:
+            header_value: Raw List-Unsubscribe header value
+            
+        Returns:
+            List of unsubscribe URLs (http/https/mailto)
+        """
+        if not header_value:
+            return []
+        
+        links = []
+        # Extract URLs from angle brackets: <url>
+        url_pattern = r'<([^>]+)>'
+        matches = re.findall(url_pattern, header_value)
+        
+        for url in matches:
+            url = url.strip()
+            # Only include http/https/mailto URLs
+            if url.startswith(('http://', 'https://', 'mailto:')):
+                links.append(url)
         
         return links
 
