@@ -750,12 +750,15 @@ Note: App passwords are more secure than regular passwords for applications like
             """Unsubscribe task to run in background."""
             # Create strategy chain
             chain = StrategyChain(self.db)
-            chain.add_strategy(ListUnsubscribeStrategy())
-            chain.add_strategy(HTTPStrategy())
+            list_unsub_strategy = ListUnsubscribeStrategy()
+            http_strategy = HTTPStrategy()
+            chain.add_strategy(list_unsub_strategy)
+            chain.add_strategy(http_strategy)
             
             results = {
                 'success': 0, 
-                'failed': 0, 
+                'failed': 0,
+                'skipped': 0,
                 'details': [],
                 'successful_senders': []  # Track successful senders for deletion option
             }
@@ -769,6 +772,19 @@ Note: App passwords are more secure than regular passwords for applications like
                 progress_callback(i, count, f"Processing {sender}")
                 
                 try:
+                    # Check if any strategy can handle this email
+                    can_unsubscribe = (list_unsub_strategy.can_handle(sender_data) or 
+                                      http_strategy.can_handle(sender_data))
+                    
+                    if not can_unsubscribe:
+                        # Skip this sender - no unsubscribe method available
+                        results['skipped'] += 1
+                        sender_data['status'] = 'Skipped (no unsubscribe link)'
+                        self.sender_table.update_sender_status(sender, 'Skipped (no unsubscribe link)')
+                        results['details'].append(f"⊘ {sender}: No unsubscribe link found (skipped)")
+                        self.logger.info(f"Skipped {sender}: No unsubscribe method available")
+                        continue
+                    
                     # Execute unsubscribe
                     success, message, strategy = chain.execute(sender_data)
                     
@@ -817,22 +833,29 @@ Note: App passwords are more secure than regular passwords for applications like
                 # Show summary
                 success_count = results.get('success', 0)
                 failed_count = results.get('failed', 0)
+                skipped_count = results.get('skipped', 0)
                 successful_senders = results.get('successful_senders', [])
                 
                 msg = f"Unsubscribe complete:\n\n"
                 msg += f"  Successful: {success_count}\n"
-                msg += f"  Failed: {failed_count}\n\n"
+                msg += f"  Failed: {failed_count}\n"
+                if skipped_count > 0:
+                    msg += f"  Skipped (no unsubscribe link): {skipped_count}\n"
+                msg += "\n"
                 
                 if success_count > 0:
                     msg += "Successful unsubscribes will no longer send you emails."
+                if skipped_count > 0:
+                    msg += "\nSkipped senders can still be deleted using 'Delete Selected'."
                 
                 messagebox.showinfo("Unsubscribe Complete", msg)
                 
                 # Update statistics
-                self.status_bar.config(
-                    text=f"Unsubscribe complete: {success_count} succeeded, {failed_count} failed"
-                )
-                self.logger.info(f"Unsubscribe complete: {success_count} succeeded, {failed_count} failed")
+                status_msg = f"Unsubscribe complete: {success_count} succeeded, {failed_count} failed"
+                if skipped_count > 0:
+                    status_msg += f", {skipped_count} skipped"
+                self.status_bar.config(text=status_msg)
+                self.logger.info(f"Unsubscribe complete: {success_count} succeeded, {failed_count} failed, {skipped_count} skipped")
                 
                 # Offer to delete emails from successfully unsubscribed senders
                 if successful_senders:

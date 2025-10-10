@@ -108,7 +108,7 @@ class GmailAPIClient:
             self.logger.error(f"Failed to get email count: {e}")
             return 0
 
-    def fetch_email_ids(self, limit: int = 100) -> List[str]:
+    def fetch_email_ids(self, limit: int = 250) -> List[str]:
         """Fetch recent email IDs.
 
         Args:
@@ -325,7 +325,7 @@ class GmailAPIClient:
             self.logger.error(self.error_message)
             return False
 
-    def search_emails(self, query: str, limit: int = 100) -> List[str]:
+    def search_emails(self, query: str, limit: int = 250) -> List[str]:
         """Search for emails using Gmail query syntax.
 
         Args:
