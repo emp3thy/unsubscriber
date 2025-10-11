@@ -20,3 +20,8 @@ google-api-python-client>=2.100.0
 # Note: selenium/webdriver-manager deferred to post-MVP (see Phase 8 notes)
 # Note: All other dependencies are Python built-ins (imaplib, tkinter, sqlite3, etc.)
 
+# Testing Framework (Phase 1 - Refactoring)
+pytest>=7.0.0
+pytest-mock>=3.10.0
+pytest-cov>=4.0.0
+
