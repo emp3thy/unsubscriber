@@ -7,9 +7,10 @@ email addresses and domains that should never be marked as unwanted.
 import tkinter as tk
 from tkinter import ttk
 from typing import List, Dict
+from src.ui.filterable_treeview import FilterableTreeview
 
 
-class WhitelistTable:
+class WhitelistTable(FilterableTreeview):
     """Table widget for displaying whitelisted entries."""
     
     def __init__(self, parent):
@@ -19,11 +20,24 @@ class WhitelistTable:
         Args:
             parent: Parent tkinter widget
         """
+        # Initialize FilterableTreeview
+        FilterableTreeview.__init__(self)
+        
         self.parent = parent
-        self.entry_data = {}  # Store full data by item ID
+        self.sender_data = {}  # Store full data by item ID (using sender_data for consistency)
+        self.entry_data = self.sender_data  # Alias for backward compatibility
         
         # Create frame with scrollbar
         self.frame = ttk.Frame(parent)
+        
+        # Define columns
+        self.columns_def = {
+            'entry': ('Entry', 300),
+            'type': ('Type', 100),
+            'notes': ('Notes', 250),
+            'date': ('Date Added', 150)
+        }
+        
         self.scrollbar = ttk.Scrollbar(self.frame, orient=tk.VERTICAL)
         
         # Create Treeview
@@ -41,6 +55,9 @@ class WhitelistTable:
         
         # Configure color tags
         self.tree.tag_configure('protected', background='#E0FFE0')  # Light green
+        
+        # Create filter row
+        self.create_filter_row(self.frame, self.tree, self.columns_def)
         
         # Pack widgets
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -93,7 +110,10 @@ class WhitelistTable:
             
             # Insert item with green background
             item_id = self.tree.insert('', tk.END, values=values, tags=('protected',))
-            self.entry_data[item_id] = entry_dict
+            self.sender_data[item_id] = entry_dict
+        
+        # Store all items for filtering
+        self.store_all_items()
     
     def get_selected(self) -> List[Dict]:
         """
@@ -156,4 +176,26 @@ class WhitelistTable:
     def grid(self, **kwargs):
         """Grid the frame."""
         self.frame.grid(**kwargs)
+    
+    def _data_to_values(self, data: Dict) -> tuple:
+        """Convert entry data to display values tuple."""
+        entry = data.get('entry', 'Unknown')
+        entry_type = data.get('type', 'email').capitalize()
+        notes = data.get('notes', '')
+        date = data.get('added_date', '')
+        
+        # Shorten date to just date part (not time)
+        if ' ' in date:
+            date = date.split(' ')[0]
+        
+        return (
+            entry,
+            entry_type,
+            notes[:40] + '...' if len(notes) > 40 else notes,
+            date
+        )
+    
+    def _get_item_tags(self, data: Dict) -> tuple:
+        """Get tags for an item."""
+        return ('protected',)
 

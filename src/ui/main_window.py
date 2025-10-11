@@ -12,8 +12,10 @@ from src.ui.settings_dialog import AccountDialog, SettingsDialog
 from src.ui.sender_table import SenderTable
 from src.ui.must_delete_table import MustDeleteTable
 from src.ui.whitelist_table import WhitelistTable
+from src.ui.noreply_table import NoReplyTable
 from src.ui.progress_dialog import ProgressDialog
 from src.utils.threading_utils import BackgroundTask
+from src.utils.email_patterns import get_noreply_senders
 from src.email_client.credentials import CredentialManager
 from src.email_client.imap_client import IMAPClient
 from src.email_client.gmail_oauth import OAuthCredentialManager
@@ -138,6 +140,9 @@ class MainWindow:
         # Set whitelist callback for right-click context menu
         self.sender_table.set_whitelist_callback(self._quick_add_to_whitelist)
         
+        # Set must delete callback for right-click context menu
+        self.sender_table.set_must_delete_callback(self._quick_add_to_must_delete)
+        
         # Create Must Delete tab
         self.must_delete_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.must_delete_tab, text="Must Delete")
@@ -159,6 +164,17 @@ class MainWindow:
 
         # Create toolbar for whitelist tab (can now bind to existing table)
         self._create_whitelist_toolbar()
+        
+        # Create No-Reply Senders tab
+        self.noreply_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.noreply_tab, text="No-Reply Senders")
+        
+        # Create no-reply table first (main content)
+        self.noreply_table = NoReplyTable(self.noreply_tab)
+        self.noreply_table.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        
+        # Create toolbar for no-reply tab
+        self._create_noreply_toolbar()
 
         # Bind tab change event to refresh tables
         self.notebook.bind('<<NotebookTabChanged>>', self._on_tab_changed)
@@ -325,6 +341,14 @@ class MainWindow:
         toolbar = ttk.Frame(self.must_delete_tab)
         toolbar.pack(side=tk.TOP, fill=tk.X, pady=(5, 0))
         
+        # Auto Delete button
+        self.auto_delete_btn = ttk.Button(
+            toolbar,
+            text="Auto Delete",
+            command=self.auto_delete_must_delete
+        )
+        self.auto_delete_btn.pack(side=tk.LEFT, padx=5)
+        
         # Delete Selected button
         self.delete_selected_btn = ttk.Button(
             toolbar,
@@ -367,6 +391,21 @@ class MainWindow:
                                       self._on_whitelist_selection_changed)
         
         self.logger.debug("Whitelist toolbar created")
+    
+    def _create_noreply_toolbar(self):
+        """Create toolbar for no-reply senders tab."""
+        toolbar = ttk.Frame(self.noreply_tab)
+        toolbar.pack(side=tk.TOP, fill=tk.X, pady=(5, 0))
+        
+        # Delete All button
+        self.delete_all_noreply_btn = ttk.Button(
+            toolbar,
+            text="Delete All Emails",
+            command=self.delete_all_noreply
+        )
+        self.delete_all_noreply_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.logger.debug("No-reply toolbar created")
     
     def _on_tab_changed(self, event):
         """Handle tab change event to refresh tables."""
@@ -502,14 +541,13 @@ class MainWindow:
                 failed_senders = results['failed_senders']
                 
                 # Show summary
-                msg = f"Deletion complete:\n\n"
-                msg += f"  Senders processed: {deleted_senders}\n"
-                msg += f"  Total emails deleted: {total_emails:,}\n"
-                if failed_senders > 0:
-                    msg += f"  Failed: {failed_senders}\n"
-                
-                messagebox.showinfo("Deletion Complete", msg)
                 self.logger.info(f"Must-delete deletion complete: {total_emails} emails from {deleted_senders} senders")
+                
+                # Show status in status bar
+                status_msg = f"Deleted {total_emails:,} emails from {deleted_senders} senders"
+                if failed_senders > 0:
+                    status_msg += f" ({failed_senders} failed)"
+                self.status_bar.config(text=status_msg)
                 
                 # Refresh the must-delete list
                 self._refresh_must_delete_list()
@@ -525,6 +563,285 @@ class MainWindow:
             else:
                 self.status_bar.config(text="Deletion cancelled")
                 self.logger.info("Must-delete deletion cancelled by user")
+        
+        # Start deletion
+        bg_task.run(delete_task, on_progress, on_complete)
+    
+    def auto_delete_must_delete(self):
+        """Auto-delete all emails from all senders in the must delete list."""
+        # Get all senders from must delete list
+        all_senders = self.db.get_must_delete_senders()
+        
+        if not all_senders:
+            self.status_bar.config(text="Must delete list is empty")
+            self.logger.info("Auto-delete: must delete list is empty")
+            return
+        
+        # Calculate total count
+        sender_count = len(all_senders)
+        
+        # Build confirmation message
+        msg = f"Delete all emails from {sender_count} sender(s) in the must-delete list?\n\n"
+        msg += "This will check each sender for emails in your inbox and delete them all.\n"
+        msg += "After deletion, these senders will be removed from the must-delete list.\n\n"
+        msg += "⚠️ This action cannot be undone!"
+        
+        # Show confirmation dialog
+        result = messagebox.askyesno(
+            "Confirm Auto Delete",
+            msg,
+            icon='warning'
+        )
+        
+        if not result:
+            return
+        
+        self.logger.info(f"Starting auto-delete for {sender_count} must-delete senders")
+        
+        # Disable button during operation
+        self.auto_delete_btn.config(state=tk.DISABLED)
+        self.delete_selected_btn.config(state=tk.DISABLED)
+        self.status_bar.config(text="Starting auto-delete...")
+        
+        # Create progress dialog
+        progress = ProgressDialog(self.root, "Auto-Deleting Emails")
+        
+        # Create background task
+        bg_task = BackgroundTask(self.root)
+        progress.set_cancel_callback(bg_task.cancel)
+        
+        def delete_task(progress_callback):
+            """Delete emails in background thread."""
+            # Get account and connect
+            account = self.db.get_primary_account()
+            if not account:
+                raise Exception("No account configured")
+            
+            client = self._create_email_client(account)
+            if not client.connect():
+                error_msg = client.get_error_message() or "Failed to connect to email server"
+                raise Exception(error_msg)
+            
+            results = {
+                'deleted_senders': 0,
+                'failed_senders': 0,
+                'skipped_senders': 0,
+                'total_emails_deleted': 0,
+                'removed_from_list': []
+            }
+            
+            try:
+                for i, sender_info in enumerate(all_senders):
+                    if bg_task.is_cancelled:
+                        break
+                    
+                    sender = sender_info['email']
+                    progress_callback(i, sender_count, f"Checking {sender} for emails...")
+                    
+                    # Delete emails from this sender
+                    deleted, message = client.delete_emails_from_sender(sender, self.db)
+                    
+                    if deleted > 0:
+                        results['deleted_senders'] += 1
+                        results['total_emails_deleted'] += deleted
+                        results['removed_from_list'].append(sender)
+                        self.logger.info(f"Auto-deleted {deleted} emails from {sender}")
+                        
+                        # Remove from must-delete list in database
+                        self.db.remove_from_must_delete(sender)
+                    elif deleted == 0:
+                        # No emails found from this sender
+                        results['skipped_senders'] += 1
+                        self.logger.info(f"No emails found from {sender}")
+                        
+                        # Still remove from must-delete list since there's nothing to delete
+                        self.db.remove_from_must_delete(sender)
+                        results['removed_from_list'].append(sender)
+                    else:
+                        results['failed_senders'] += 1
+                        self.logger.warning(f"Failed to delete emails from {sender}: {message}")
+                
+            finally:
+                client.disconnect()
+            
+            return results
+        
+        def on_progress(current, total, message):
+            """Update progress dialog."""
+            progress.update_progress(current, total, message)
+        
+        def on_complete(results, error=None):
+            """Handle completion."""
+            progress.destroy()
+            self.auto_delete_btn.config(state=tk.NORMAL)
+            self.delete_selected_btn.config(state=tk.NORMAL)
+            
+            if error:
+                self.status_bar.config(text="Auto-delete failed")
+                messagebox.showerror("Error", f"Failed to auto-delete emails: {error}")
+                self.logger.error(f"Auto-delete failed: {error}")
+            elif results:
+                deleted_senders = results['deleted_senders']
+                total_emails = results['total_emails_deleted']
+                failed_senders = results['failed_senders']
+                skipped_senders = results['skipped_senders']
+                
+                self.logger.info(f"Auto-delete complete: {total_emails} emails from {deleted_senders} senders")
+                
+                # Show status in status bar
+                status_msg = f"Auto-deleted {total_emails:,} emails from {deleted_senders} senders"
+                if skipped_senders > 0:
+                    status_msg += f" ({skipped_senders} had no emails)"
+                if failed_senders > 0:
+                    status_msg += f" ({failed_senders} failed)"
+                self.status_bar.config(text=status_msg)
+                
+                # Refresh the must-delete list
+                self._refresh_must_delete_list()
+                
+                # Update statistics
+                current_senders = []
+                if hasattr(self.sender_table, 'sender_data'):
+                    current_senders = list(self.sender_table.sender_data.values())
+                self.update_statistics(current_senders)
+                
+                # Update status bar
+                self.status_bar.config(
+                    text=f"Auto-deleted {total_emails:,} emails from {deleted_senders} senders"
+                )
+            else:
+                self.status_bar.config(text="Auto-delete cancelled")
+                self.logger.info("Auto-delete cancelled by user")
+        
+        # Start deletion
+        bg_task.run(delete_task, on_progress, on_complete)
+    
+    def delete_all_noreply(self):
+        """Delete all emails from all no-reply senders in the table."""
+        # Get all senders from no-reply table
+        all_senders = self.noreply_table.get_all()
+        
+        if not all_senders:
+            self.status_bar.config(text="No no-reply senders to delete")
+            self.logger.info("Delete all no-reply: table is empty")
+            return
+        
+        # Calculate total count
+        sender_count = len(all_senders)
+        total_email_count = sum(s.get('total_count', 0) for s in all_senders)
+        
+        # Build confirmation message
+        msg = f"Delete all emails from {sender_count} no-reply sender(s)?\n\n"
+        msg += f"This will permanently delete approximately {total_email_count:,} email(s) from senders like:\n"
+        msg += f"  • noreply@...\n"
+        msg += f"  • donotreply@...\n"
+        msg += f"  • no-reply@...\n\n"
+        msg += "⚠️ This action cannot be undone!"
+        
+        # Show confirmation dialog
+        result = messagebox.askyesno(
+            "Confirm Delete All No-Reply",
+            msg,
+            icon='warning'
+        )
+        
+        if not result:
+            return
+        
+        self.logger.info(f"Starting delete all for {sender_count} no-reply senders")
+        
+        # Disable button during operation
+        self.delete_all_noreply_btn.config(state=tk.DISABLED)
+        self.status_bar.config(text="Starting deletion...")
+        
+        # Create progress dialog
+        progress = ProgressDialog(self.root, "Deleting No-Reply Emails")
+        
+        # Create background task
+        bg_task = BackgroundTask(self.root)
+        progress.set_cancel_callback(bg_task.cancel)
+        
+        def delete_task(progress_callback):
+            """Delete emails in background thread."""
+            # Get account and connect
+            account = self.db.get_primary_account()
+            if not account:
+                raise Exception("No account configured")
+            
+            client = self._create_email_client(account)
+            if not client.connect():
+                error_msg = client.get_error_message() or "Failed to connect to email server"
+                raise Exception(error_msg)
+            
+            results = {
+                'deleted_senders': 0,
+                'failed_senders': 0,
+                'skipped_senders': 0,
+                'total_emails_deleted': 0
+            }
+            
+            try:
+                for i, sender_info in enumerate(all_senders):
+                    if bg_task.is_cancelled:
+                        break
+                    
+                    sender = sender_info.get('sender', 'unknown')
+                    progress_callback(i, sender_count, f"Deleting emails from {sender}...")
+                    
+                    # Delete emails from this sender
+                    deleted, message = client.delete_emails_from_sender(sender, self.db)
+                    
+                    if deleted > 0:
+                        results['deleted_senders'] += 1
+                        results['total_emails_deleted'] += deleted
+                        self.logger.info(f"Deleted {deleted} emails from {sender}")
+                    elif deleted == 0:
+                        # No emails found from this sender
+                        results['skipped_senders'] += 1
+                        self.logger.info(f"No emails found from {sender}")
+                    else:
+                        results['failed_senders'] += 1
+                        self.logger.warning(f"Failed to delete emails from {sender}: {message}")
+                
+            finally:
+                client.disconnect()
+            
+            return results
+        
+        def on_progress(current, total, message):
+            """Update progress dialog."""
+            progress.update_progress(current, total, message)
+        
+        def on_complete(results, error=None):
+            """Handle completion."""
+            progress.destroy()
+            self.delete_all_noreply_btn.config(state=tk.NORMAL)
+            
+            if error:
+                self.status_bar.config(text="Delete all no-reply failed")
+                messagebox.showerror("Error", f"Failed to delete emails: {error}")
+                self.logger.error(f"Delete all no-reply failed: {error}")
+            elif results:
+                deleted_senders = results['deleted_senders']
+                total_emails = results['total_emails_deleted']
+                failed_senders = results['failed_senders']
+                skipped_senders = results['skipped_senders']
+                
+                self.logger.info(f"Delete all no-reply complete: {total_emails} emails from {deleted_senders} senders")
+                
+                # Show status in status bar
+                status_msg = f"Deleted {total_emails:,} emails from {deleted_senders} no-reply senders"
+                if skipped_senders > 0:
+                    status_msg += f" ({skipped_senders} had no emails)"
+                if failed_senders > 0:
+                    status_msg += f" ({failed_senders} failed)"
+                self.status_bar.config(text=status_msg)
+                
+                # Clear the no-reply table since emails are deleted
+                self.noreply_table.clear()
+            else:
+                self.status_bar.config(text="Delete all no-reply cancelled")
+                self.logger.info("Delete all no-reply cancelled by user")
         
         # Start deletion
         bg_task.run(delete_task, on_progress, on_complete)
@@ -698,8 +1015,13 @@ Note: App passwords are more secure than regular passwords for applications like
             elif result:
                 self.sender_table.populate(result)
                 self.update_statistics(result)
-                self.status_bar.config(text=f"Scan complete: {len(result)} senders found")
-                self.logger.info(f"Scan complete: {len(result)} senders found")
+                
+                # Filter and populate no-reply senders table
+                noreply_senders = get_noreply_senders(result)
+                self.noreply_table.populate(noreply_senders)
+                
+                self.status_bar.config(text=f"Scan complete: {len(result)} senders found ({len(noreply_senders)} no-reply)")
+                self.logger.info(f"Scan complete: {len(result)} senders found, {len(noreply_senders)} no-reply senders")
             else:
                 self.status_bar.config(text="Scan cancelled")
                 self.logger.info("Scan cancelled by user")
@@ -848,9 +1170,7 @@ Note: App passwords are more secure than regular passwords for applications like
                 if skipped_count > 0:
                     msg += "\nSkipped senders can still be deleted using 'Delete Selected'."
                 
-                messagebox.showinfo("Unsubscribe Complete", msg)
-                
-                # Update statistics
+                # Update statistics and show in status bar
                 status_msg = f"Unsubscribe complete: {success_count} succeeded, {failed_count} failed"
                 if skipped_count > 0:
                     status_msg += f", {skipped_count} skipped"
@@ -971,20 +1291,13 @@ Note: App passwords are more secure than regular passwords for applications like
                 total_emails = results['total_emails_deleted']
                 failed_senders = results['failed_senders']
                 
-                # Show summary
-                msg = f"Deletion complete:\n\n"
-                msg += f"  Senders processed: {deleted_senders}\n"
-                msg += f"  Total emails deleted: {total_emails:,}\n"
-                if failed_senders > 0:
-                    msg += f"  Failed: {failed_senders}\n"
-                
-                messagebox.showinfo("Deletion Complete", msg)
                 self.logger.info(f"Deletion complete: {total_emails} emails from {deleted_senders} senders")
                 
                 # Update status bar
-                self.status_bar.config(
-                    text=f"Deleted {total_emails:,} emails from {deleted_senders} senders"
-                )
+                status_msg = f"Deleted {total_emails:,} emails from {deleted_senders} senders"
+                if failed_senders > 0:
+                    status_msg += f" ({failed_senders} failed)"
+                self.status_bar.config(text=status_msg)
             else:
                 self.status_bar.config(text="Deletion cancelled")
                 self.logger.info("Deletion cancelled by user")
@@ -1120,17 +1433,13 @@ Note: App passwords are more secure than regular passwords for applications like
                 total_emails = results['total_emails']
                 failed_count = results['failed_count']
                 
-                msg = f"Deletion complete:\n\n"
-                msg += f"  Senders processed: {deleted_count}\n"
-                msg += f"  Total emails deleted: {total_emails:,}\n"
-                if failed_count > 0:
-                    msg += f"  Failed: {failed_count}\n"
-                
-                messagebox.showinfo("Deletion Complete", msg)
                 self.logger.info(f"Bulk deletion complete: {total_emails} emails from {deleted_count} senders")
                 
                 # Update status bar
-                self.status_bar.config(text=f"Deleted {total_emails:,} emails from {deleted_count} senders")
+                status_msg = f"Deleted {total_emails:,} emails from {deleted_count} senders"
+                if failed_count > 0:
+                    status_msg += f" ({failed_count} failed)"
+                self.status_bar.config(text=status_msg)
             else:
                 self.status_bar.config(text="Deletion cancelled")
         
@@ -1176,18 +1485,46 @@ Note: App passwords are more secure than regular passwords for applications like
             success = self.db.add_to_whitelist(sender_email, is_domain=False, 
                                               notes="Added from sender table")
             if success:
-                messagebox.showinfo("Success", f"Added {sender_email} to whitelist")
                 self.logger.info(f"Quick-added {sender_email} to whitelist")
-                
-                # Refresh sender table to show new whitelisted status
-                # (In a real implementation, we'd need to rescan or mark the sender)
                 self.status_bar.config(text=f"Added {sender_email} to whitelist")
             else:
-                messagebox.showinfo("Already Whitelisted", 
-                                  f"{sender_email} is already in the whitelist")
+                self.logger.info(f"{sender_email} already in whitelist")
+                self.status_bar.config(text=f"{sender_email} is already whitelisted")
         except Exception as e:
             self.logger.error(f"Error adding to whitelist: {e}")
             messagebox.showerror("Error", "Failed to add to whitelist. Please try again.")
+    
+    def _quick_add_to_must_delete(self, sender_email):
+        """Quick add sender to must delete list from context menu.
+        
+        Args:
+            sender_email: Email address to add to must delete list
+        """
+        # Confirm action
+        result = messagebox.askyesno(
+            "Add to Must Delete",
+            f"Add {sender_email} to must delete list?\n\n"
+            "This sender will appear in the Must Delete tab for bulk deletion."
+        )
+        
+        if not result:
+            return
+        
+        # Add to database
+        try:
+            self.db.add_to_must_delete(sender_email, reason="Manually added from sender table")
+            self.logger.info(f"Quick-added {sender_email} to must delete list")
+            
+            # Update statistics
+            current_senders = []
+            if hasattr(self.sender_table, 'sender_data'):
+                current_senders = list(self.sender_table.sender_data.values())
+            self.update_statistics(current_senders)
+            
+            self.status_bar.config(text=f"Added {sender_email} to must delete list")
+        except Exception as e:
+            self.logger.error(f"Error adding to must delete list: {e}")
+            messagebox.showerror("Error", "Failed to add to must delete list. Please try again.")
     
     def add_whitelist_entry(self):
         """Show dialog to add new whitelist entry."""
@@ -1246,8 +1583,9 @@ Note: App passwords are more secure than regular passwords for applications like
             try:
                 success = self.db.add_to_whitelist(entry, is_domain=is_domain, notes=notes)
                 if success:
-                    messagebox.showinfo("Success", f"Added {entry} to whitelist")
                     self._refresh_whitelist()
+                    self.status_bar.config(text=f"Added {entry} to whitelist")
+                    self.logger.info(f"Added {entry} to whitelist")
                     dialog.destroy()
                 else:
                     status_label.config(text="Entry already exists in whitelist")
@@ -1294,9 +1632,10 @@ Note: App passwords are more secure than regular passwords for applications like
         # Refresh display
         self._refresh_whitelist()
         
-        # Show result
+        # Show result in status bar
         if removed_count > 0:
-            messagebox.showinfo("Success", f"Removed {removed_count} {'entry' if removed_count == 1 else 'entries'} from whitelist")
+            self.status_bar.config(text=f"Removed {removed_count} {'entry' if removed_count == 1 else 'entries'} from whitelist")
         else:
+            self.status_bar.config(text="No entries were removed")
             messagebox.showwarning("Failed", "No entries were removed")
 

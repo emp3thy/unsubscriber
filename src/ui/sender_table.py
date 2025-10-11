@@ -8,9 +8,10 @@ import tkinter as tk
 from tkinter import ttk
 from typing import List, Dict
 import logging
+from src.ui.filterable_treeview import FilterableTreeview
 
 
-class SenderTable:
+class SenderTable(FilterableTreeview):
     """Table widget for displaying sender data."""
     
     def __init__(self, parent):
@@ -20,12 +21,26 @@ class SenderTable:
         Args:
             parent: Parent frame to contain the table
         """
+        # Initialize FilterableTreeview
+        FilterableTreeview.__init__(self)
+        
         self.parent = parent
         self.sender_data = {}  # Store full data by item ID
         self.logger = logging.getLogger(__name__)
         
         # Create frame with scrollbar
         self.frame = ttk.Frame(parent)
+        
+        # Add filter row first
+        self.columns_def = {
+            'sender': ('Sender', 300),
+            'count': ('Count', 80),
+            'unread': ('Unread', 80),
+            'score': ('Score', 80),
+            'has_unsub': ('Has Unsub', 100),
+            'status': ('Status', 120)
+        }
+        
         self.scrollbar = ttk.Scrollbar(self.frame, orient=tk.VERTICAL)
         
         # Create Treeview
@@ -47,6 +62,9 @@ class SenderTable:
         self.tree.tag_configure('high', background='#FFB6C1')     # Light red
         self.tree.tag_configure('whitelisted', background='#90EE90')  # Light green
         
+        # Create filter row
+        self.create_filter_row(self.frame, self.tree, self.columns_def)
+        
         # Pack widgets
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -54,6 +72,7 @@ class SenderTable:
         # Create context menu
         self.context_menu = tk.Menu(self.tree, tearoff=0)
         self.context_menu.add_command(label="Add to Whitelist", command=self._add_to_whitelist)
+        self.context_menu.add_command(label="Add to Must Delete", command=self._add_to_must_delete)
         
         # Bind right-click to show context menu
         self.tree.bind("<Button-3>", self._show_context_menu)  # Right-click
@@ -64,6 +83,7 @@ class SenderTable:
         
         # Store callbacks
         self.on_whitelist_add = None
+        self.on_must_delete_add = None
         
         self.logger.debug("SenderTable initialized")
 
@@ -226,6 +246,9 @@ class SenderTable:
             # Store score breakdown for tooltip
             self._store_score_breakdown(item_id, sender)
         
+        # Store all items for filtering
+        self.store_all_items()
+        
         self.logger.info(f"Populated table with {len(senders)} senders")
     
     def get_selected(self) -> List[Dict]:
@@ -367,4 +390,57 @@ class SenderTable:
                      Should accept sender email as parameter
         """
         self.on_whitelist_add = callback
+    
+    def set_must_delete_callback(self, callback):
+        """Set callback function for must delete addition.
+        
+        Args:
+            callback: Function to call when user selects "Add to Must Delete"
+                     Should accept sender email as parameter
+        """
+        self.on_must_delete_add = callback
+    
+    def _add_to_must_delete(self):
+        """Handle 'Add to Must Delete' context menu action."""
+        selected = self.get_selected()
+        if not selected or not self.on_must_delete_add:
+            return
+        
+        # Get the first selected sender
+        sender_data = selected[0]
+        sender_email = sender_data.get('sender', '')
+        
+        # Call the callback if provided
+        if self.on_must_delete_add:
+            self.on_must_delete_add(sender_email)
+    
+    def _data_to_values(self, data: Dict) -> tuple:
+        """Convert sender data to display values tuple."""
+        score = data.get('total_score', 0)
+        status_text = data.get('status', 'Ready')
+        
+        if score == -1:
+            status_text = 'Whitelisted'
+        
+        return (
+            data.get('sender', ''),
+            f"{data.get('total_count', 0):,}",
+            f"{data.get('unread_count', 0):,}",
+            f"{score:.1f}" if score >= 0 else "Protected",
+            'Yes' if data.get('has_unsubscribe') else 'No',
+            status_text
+        )
+    
+    def _get_item_tags(self, data: Dict) -> tuple:
+        """Get tags for an item based on sender score."""
+        score = data.get('total_score', 0)
+        
+        if score == -1:
+            return ('whitelisted',)
+        elif score < 3:
+            return ('normal',)
+        elif score < 7:
+            return ('medium',)
+        else:
+            return ('high',)
 

@@ -1,21 +1,22 @@
 """
-Must Delete Table Widget for Email Unsubscriber.
+No-Reply Table Widget for Email Unsubscriber.
 
-This module contains the MustDeleteTable widget that displays senders
-whose unsubscribe attempts failed and need manual email deletion.
+This module contains the NoReplyTable widget that displays senders
+whose email addresses contain no-reply-type patterns (e.g., noreply@, donotreply@).
 """
 import tkinter as tk
 from tkinter import ttk
 from typing import List, Dict
+import logging
 from src.ui.filterable_treeview import FilterableTreeview
 
 
-class MustDeleteTable(FilterableTreeview):
-    """Table widget for displaying must-delete senders."""
+class NoReplyTable(FilterableTreeview):
+    """Table widget for displaying no-reply type senders."""
     
     def __init__(self, parent):
         """
-        Initialize the must-delete table.
+        Initialize the no-reply table.
         
         Args:
             parent: Parent tkinter widget
@@ -25,16 +26,17 @@ class MustDeleteTable(FilterableTreeview):
         
         self.parent = parent
         self.sender_data = {}  # Store full data by item ID
+        self.logger = logging.getLogger(__name__)
         
         # Create frame with scrollbar
         self.frame = ttk.Frame(parent)
         
         # Define columns
         self.columns_def = {
-            'sender': ('Sender', 350),
-            'reason': ('Failure Reason', 300),
-            'date': ('Date Added', 150),
-            'status': ('Status', 120)
+            'sender': ('Sender', 400),
+            'count': ('Email Count', 100),
+            'unread': ('Unread', 100),
+            'score': ('Score', 80)
         }
         
         self.scrollbar = ttk.Scrollbar(self.frame, orient=tk.VERTICAL)
@@ -42,7 +44,7 @@ class MustDeleteTable(FilterableTreeview):
         # Create Treeview
         self.tree = ttk.Treeview(
             self.frame,
-            columns=('sender', 'reason', 'date', 'status'),
+            columns=('sender', 'count', 'unread', 'score'),
             show='headings',
             selectmode='extended',
             yscrollcommand=self.scrollbar.set
@@ -53,7 +55,7 @@ class MustDeleteTable(FilterableTreeview):
         self._setup_columns()
         
         # Configure color tags
-        self.tree.tag_configure('failed', background='#FFE4E1')  # Light red
+        self.tree.tag_configure('noreply', background='#FFE4E1')  # Light red
         
         # Create filter row
         self.create_filter_row(self.frame, self.tree, self.columns_def)
@@ -61,14 +63,16 @@ class MustDeleteTable(FilterableTreeview):
         # Pack widgets
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.logger.debug("NoReplyTable initialized")
     
     def _setup_columns(self):
         """Define column headers and properties."""
         columns = {
-            'sender': ('Sender', 350),
-            'reason': ('Failure Reason', 300),
-            'date': ('Date Added', 150),
-            'status': ('Status', 120)
+            'sender': ('Sender', 400),
+            'count': ('Email Count', 100),
+            'unread': ('Unread', 100),
+            'score': ('Score', 80)
         }
         
         for col, (heading, width) in columns.items():
@@ -78,40 +82,39 @@ class MustDeleteTable(FilterableTreeview):
     
     def populate(self, senders: List[Dict]):
         """
-        Populate table with must-delete sender data.
+        Populate table with no-reply sender data.
         
         Args:
-            senders: List of sender dictionaries with keys: email, reason, added_date
+            senders: List of sender dictionaries with keys: sender, total_count, unread_count, total_score
         """
         self.clear()
         
         if not senders:
-            # Show "No must-delete senders" message
+            self.logger.debug("No no-reply senders to populate")
             return
         
         for sender in senders:
             # Format values
-            email = sender.get('email', 'Unknown')
-            reason = sender.get('reason', 'Unknown')
-            date = sender.get('added_date', '')
-            
-            # Shorten date to just date part (not time)
-            if ' ' in date:
-                date = date.split(' ')[0]
+            email = sender.get('sender', 'Unknown')
+            count = sender.get('total_count', 0)
+            unread = sender.get('unread_count', 0)
+            score = sender.get('total_score', 0)
             
             values = (
                 email,
-                reason[:50] + '...' if len(reason) > 50 else reason,  # Truncate long reasons
-                date,
-                'Pending Deletion'
+                f"{count:,}",
+                f"{unread:,}",
+                f"{score:.1f}" if score >= 0 else "N/A"
             )
             
-            # Insert item with red background
-            item_id = self.tree.insert('', tk.END, values=values, tags=('failed',))
+            # Insert item with colored background
+            item_id = self.tree.insert('', tk.END, values=values, tags=('noreply',))
             self.sender_data[item_id] = sender
         
         # Store all items for filtering
         self.store_all_items()
+        
+        self.logger.info(f"Populated no-reply table with {len(senders)} senders")
     
     def get_selected(self) -> List[Dict]:
         """
@@ -139,29 +142,6 @@ class MustDeleteTable(FilterableTreeview):
             self.tree.delete(item)
         self.sender_data.clear()
     
-    def remove_selected(self):
-        """Remove selected items from the table."""
-        selected_ids = self.tree.selection()
-        for item_id in selected_ids:
-            self.tree.delete(item_id)
-            if item_id in self.sender_data:
-                del self.sender_data[item_id]
-    
-    def update_status(self, email: str, status: str):
-        """
-        Update the status column for a specific sender.
-        
-        Args:
-            email: Email address to update
-            status: New status text
-        """
-        for item_id, data in self.sender_data.items():
-            if data.get('email') == email:
-                values = list(self.tree.item(item_id, 'values'))
-                values[3] = status  # Update status column
-                self.tree.item(item_id, values=values)
-                break
-    
     def _sort_by_column(self, col, reverse):
         """
         Sort table by column.
@@ -172,8 +152,11 @@ class MustDeleteTable(FilterableTreeview):
         """
         items = [(self.tree.set(item, col), item) for item in self.tree.get_children('')]
         
-        # Sort items
-        items.sort(reverse=reverse)
+        # Try numeric sort for count columns
+        try:
+            items.sort(key=lambda t: float(t[0].replace(',', '')), reverse=reverse)
+        except (ValueError, AttributeError):
+            items.sort(reverse=reverse)
         
         # Rearrange items in tree
         for index, (val, item) in enumerate(items):
@@ -192,22 +175,19 @@ class MustDeleteTable(FilterableTreeview):
     
     def _data_to_values(self, data: Dict) -> tuple:
         """Convert sender data to display values tuple."""
-        email = data.get('email', 'Unknown')
-        reason = data.get('reason', 'Unknown')
-        date = data.get('added_date', '')
-        
-        # Shorten date to just date part (not time)
-        if ' ' in date:
-            date = date.split(' ')[0]
+        email = data.get('sender', 'Unknown')
+        count = data.get('total_count', 0)
+        unread = data.get('unread_count', 0)
+        score = data.get('total_score', 0)
         
         return (
             email,
-            reason[:50] + '...' if len(reason) > 50 else reason,
-            date,
-            'Pending Deletion'
+            f"{count:,}",
+            f"{unread:,}",
+            f"{score:.1f}" if score >= 0 else "N/A"
         )
     
     def _get_item_tags(self, data: Dict) -> tuple:
         """Get tags for an item."""
-        return ('failed',)
+        return ('noreply',)
 
