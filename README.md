@@ -54,6 +54,46 @@ python build.py
 
 This creates a single executable that doesn't require Python to be installed.
 
+## User Interface Overview
+
+The application features a clean 4-tab interface:
+
+### Tabs
+
+1. **Senders Tab**: Main view showing all detected senders with scores, counts, and status
+   - Filter by any column using the filter row above headers
+   - Right-click senders for quick actions
+   - Click column headers to sort
+   - Color-coded by score level
+
+2. **Must Delete Tab**: Senders that failed to unsubscribe
+   - Auto Delete button processes all senders at once
+   - Delete Selected button for individual senders
+   - Shows failure reason and date added
+
+3. **Whitelist Tab**: Protected senders that won't be affected by operations
+   - Add/Remove entries
+   - Support for individual emails and domains
+   - Shows entry type, notes, and date added
+
+4. **No-Reply Senders Tab**: Automatically detected no-reply email addresses
+   - Shows senders like noreply@, donotreply@, etc.
+   - Delete All Emails button for bulk cleanup
+   - Automatically populated during scanning
+
+### Toolbar Buttons
+
+- **Scan Inbox**: Analyze your inbox and populate all tabs
+- **Unsubscribe Selected**: Attempt to unsubscribe from selected senders
+- **Delete Selected**: Delete all emails from selected senders (use with caution!)
+
+### Status Bar
+
+Located at the bottom of the window:
+- Shows operation progress and results
+- Displays email counts and statistics
+- No intrusive popup messages for routine operations
+
 ## Getting Started
 
 ### First Run
@@ -84,7 +124,13 @@ The application assigns scores to senders based on:
 - **Unsubscribe links** (+1 point): Presence suggests it's a mailing list
 - **Historical data** (+5 points): Previously marked as unwanted
 
-Hover over score values to see the breakdown of how each score was calculated.
+**Hover over any score value** in the Score column to see a detailed tooltip showing exactly how that score was calculated (e.g., "Score 42.0 = Unread: +6 + Frequency: +35 + Has unsubscribe: +1").
+
+**Color coding:**
+- **Green background**: Whitelisted (protected) senders
+- **White background**: Low score (< 3 points)
+- **Light yellow background**: Medium score (3-7 points)  
+- **Light red background**: High score (7+ points)
 
 ## Email Provider Setup
 
@@ -146,10 +192,21 @@ If you prefer not to use OAuth:
 - Click "Scan Inbox" to analyze your emails
 - The application reads email headers only (no full message content)
 - Scanning is safe and won't mark emails as read
+- After scanning, senders are organized into multiple tabs
+- No-reply senders are automatically detected and shown in a separate tab
+
+### Using Filters
+
+**All tables support Excel-style filtering:**
+- Type in any filter box above columns to search
+- Filters work across multiple columns simultaneously
+- Right-click any filter box to clear that specific filter
+- Press **Escape** in any filter box to clear all filters
+- Filters automatically adjust when you resize the window or columns
 
 ### Unsubscribing
 
-1. **Select senders** from the table (Ctrl+click for multiple)
+1. **Select senders** from the Senders tab (Ctrl+click for multiple)
 2. **Click "Unsubscribe Selected"**
 3. **Confirm** the operation
 4. **Wait** for completion (may take several minutes)
@@ -158,24 +215,57 @@ The application tries multiple unsubscribe strategies:
 1. **RFC 2369 List-Unsubscribe headers** (most reliable)
 2. **Direct HTTP links** found in emails
 
-### Manual Deletion
+**Results shown in status bar** - No popup notifications for completed operations
 
-For senders where unsubscribe fails:
-1. **Go to "Must Delete" tab**
-2. **Select senders** you want to delete emails from
-3. **Click "Delete All Must-Delete"**
-4. **Confirm** the operation
+### Must Delete List
+
+**For senders where unsubscribe fails:**
+
+1. **Automatic Addition**: Failed unsubscribes are automatically added to the Must Delete tab
+2. **Manual Addition**: Right-click any sender in the Senders tab and select "Add to Must Delete"
+3. **View List**: Switch to the "Must Delete" tab to see all senders
+4. **Delete Selected**: Select specific senders and click "Delete Selected"
+5. **Auto Delete**: Click "Auto Delete" to process all senders in the list at once
+
+**Auto Delete features:**
+- Checks each sender for emails in your inbox
+- Deletes all emails found
+- Removes senders from the list after successful deletion
+- Shows progress and summary in status bar
+
+### No-Reply Senders
+
+**Automatically detected senders with no-reply email patterns:**
+
+1. **Automatic Detection**: Senders with emails containing at least 2 of these keywords are flagged: `no`, `not`, `do`, `reply`
+2. **Examples**: `noreply@`, `donotreply@`, `no-reply@`, etc.
+3. **View Tab**: Check the "No-Reply Senders" tab after scanning
+4. **Bulk Delete**: Click "Delete All Emails" to remove all emails from these senders
 
 ### Whitelist Management
 
-To protect important senders:
-1. **Right-click a sender** in the table and select "Add to Whitelist"
-2. **Or use the Whitelist tab** to manually add entries
+**To protect important senders:**
 
-Whitelisted senders:
-- Won't appear in scan results
-- Are protected from deletion operations
+**Quick Add:**
+1. **Right-click a sender** in the Senders tab
+2. Select "Add to Whitelist"
+
+**Manual Add:**
+1. Go to the **Whitelist tab**
+2. Click **"Add Entry"**
+3. Choose Email or Domain type
+4. Enter the email/domain and optional notes
+
+**Whitelisted senders:**
+- Are marked with green background and "Protected" score
+- Cannot be selected for unsubscribe or delete operations
 - Can be individual emails or entire domains (e.g., `@company.com`)
+
+### Context Menu Actions
+
+**Right-click any sender in the Senders tab for quick actions:**
+- **Add to Whitelist**: Protect this sender from operations
+- **Add to Must Delete**: Mark for bulk deletion
 
 ## Troubleshooting
 
@@ -251,6 +341,18 @@ For issues, questions, or feature requests:
 - Create a new issue with detailed information
 
 ## Changelog
+
+### Version 1.2.0 (Current)
+- **NEW**: Excel-style filtering on all tables with real-time search
+- **NEW**: No-Reply Senders tab - automatically detects and isolates no-reply email addresses
+- **NEW**: Auto Delete button in Must Delete tab for bulk processing
+- **NEW**: Context menu actions - right-click senders for quick operations
+- **NEW**: Dynamic filter alignment - filters adjust automatically when resizing
+- **NEW**: Score tooltips showing detailed breakdown on hover
+- **IMPROVED**: Status bar messaging replaces many popup dialogs
+- **IMPROVED**: Enhanced keyboard shortcuts (Escape to clear filters)
+- **IMPROVED**: Better visual organization with 4-tab interface
+- **IMPROVED**: Debounced filter updates for smoother performance
 
 ### Version 1.1.0
 - **NEW**: Gmail OAuth 2.0 authentication support
