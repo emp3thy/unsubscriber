@@ -4,14 +4,25 @@ A Python application that helps you manage unwanted emails by identifying sender
 
 ## Features
 
+### Core Functionality
 - **Smart Scanning**: Analyzes your inbox to identify problematic senders based on email frequency and content
 - **Automatic Unsubscribe**: Attempts to unsubscribe from mailing lists using multiple strategies (RFC 2369 headers, direct HTTP links)
 - **Manual Cleanup**: Delete all emails from senders where unsubscribe failed
-- **Whitelist Protection**: Protect important senders from accidental operations
-- **Score-based Prioritization**: Senders are ranked by how "unwanted" they appear to be
-- **Progress Tracking**: Visual progress indicators during long operations
+- **Score-based Prioritization**: Senders are ranked by how "unwanted" they appear to be with detailed tooltips
+- **Progress Tracking**: Visual progress indicators during long operations with cancellation support
 - **OAuth 2.0 Support**: Secure Gmail authentication using OAuth 2.0 (recommended method)
+- **Gmail API Support**: Fast and reliable email operations using Gmail's official API
 - **Cross-platform**: Works on Windows, macOS, and Linux
+
+### Advanced Features
+- **Excel-style Filtering**: Filter senders by any column with real-time search across all tables
+- **No-Reply Detection**: Automatically identifies and isolates no-reply email addresses
+- **Must Delete List**: Dedicated management for senders that failed to unsubscribe
+- **Auto Delete**: Bulk delete all emails from multiple senders with one click
+- **Context Menu Actions**: Right-click any sender to quickly add to whitelist or must delete list
+- **Whitelist Protection**: Protect important senders from accidental operations (supports individual emails and entire domains)
+- **Dynamic Column Resizing**: All filters automatically adjust when window or columns are resized
+- **Multi-tab Interface**: Organized tabs for Senders, Must Delete, Whitelist, and No-Reply Senders
 
 ## Installation
 
