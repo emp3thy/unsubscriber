@@ -200,8 +200,8 @@ Phase X, Step X.X: [Brief description]
 **Phase Progress:**
 - ✅ Step 3.1: Create EmailScanService
 - ✅ Step 3.2: Create UnsubscribeService
-- 🔄 Step 3.3: Create EmailDeletionService
-- ❌ Step 3.4: Create ServiceFactory
+- ✅ Step 3.3: Create EmailDeletionService
+- 🔄 Step 3.4: Create ServiceFactory
 
 ---
 
@@ -431,14 +431,14 @@ Extract email deletion logic from MainWindow into EmailDeletionService. This ser
 - Comprehensive logging of all deletions
 
 **Acceptance Criteria:**
-- ❌ EmailDeletionService class created
-- ❌ Can delete emails from multiple senders
-- ❌ Returns detailed results dictionary
-- ❌ Checks whitelist before deletion (safety)
-- ❌ Removes from must-delete list after successful deletion
-- ❌ Progress callback called for each sender
-- ❌ Handles senders with no emails gracefully
-- ❌ Can be cancelled mid-operation
+- ✅ EmailDeletionService class created
+- ✅ Can delete emails from multiple senders
+- ✅ Returns detailed results dictionary
+- ✅ Checks whitelist before deletion (safety)
+- ✅ Removes from must-delete list after successful deletion
+- ✅ Progress callback called for each sender
+- ✅ Handles senders with no emails gracefully
+- ✅ Can be cancelled mid-operation
 
 **Files to Create:**
 - `src/services/email_deletion_service.py` - Email deletion service
