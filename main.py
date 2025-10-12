@@ -16,6 +16,7 @@ if current_dir not in sys.path:
 from src.utils.logger import setup_logger
 from src.database.db_manager import DBManager
 from src.ui.main_window import MainWindow
+from src.services.service_factory import ServiceFactory
 
 
 def main():
@@ -29,9 +30,13 @@ def main():
     db.initialize_db('src/database/schema.sql')
     logger.info("Database initialized")
     
+    # Create service factory
+    service_factory = ServiceFactory(db)
+    logger.info("Service factory created")
+    
     # Create main window
     root = tk.Tk()
-    app = MainWindow(root, db)
+    app = MainWindow(root, db, service_factory)
     
     logger.info("Application window created, starting main loop")
     root.mainloop()

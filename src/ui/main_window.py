@@ -27,18 +27,20 @@ from src.scoring.email_grouper import EmailGrouper
 from src.unsubscribe.strategy_chain import StrategyChain
 from src.unsubscribe.list_unsubscribe import ListUnsubscribeStrategy
 from src.unsubscribe.http_strategy import HTTPStrategy
+from src.services.service_factory import ServiceFactory
 
 
 class MainWindow:
     """Main application window."""
     
-    def __init__(self, root, db_manager):
+    def __init__(self, root, db_manager, service_factory=None):
         """
         Initialize the main application window.
         
         Args:
             root: Tkinter root window
             db_manager: DBManager instance for database operations
+            service_factory: ServiceFactory instance (optional, creates default if not provided)
         """
         self.root = root
         self.db = db_manager
@@ -46,6 +48,14 @@ class MainWindow:
         self.oauth_manager = OAuthCredentialManager(db_manager, self.cred_manager)
         self.auth_factory = AuthStrategyFactory(self.cred_manager, self.oauth_manager)
         self.logger = logging.getLogger(__name__)
+        
+        # Initialize service factory (for backward compatibility, create if not provided)
+        if service_factory is None:
+            self.logger.info("Creating default ServiceFactory")
+            self.service_factory = ServiceFactory(db_manager)
+        else:
+            self.service_factory = service_factory
+            self.logger.info("Using provided ServiceFactory")
         
         # Configure window
         self.root.title("Email Unsubscriber")
