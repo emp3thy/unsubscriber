@@ -84,8 +84,7 @@ class ListUnsubscribeStrategy(UnsubscribeStrategy):
                     data={'List-Unsubscribe': 'One-Click'},
                     headers=self.headers,
                     timeout=self.timeout,
-                    allow_redirects=True,
-                    max_redirects=self.max_redirects
+                    allow_redirects=True
                 )
             else:
                 # Use GET (traditional method)
@@ -94,8 +93,7 @@ class ListUnsubscribeStrategy(UnsubscribeStrategy):
                     url,
                     headers=self.headers,
                     timeout=self.timeout,
-                    allow_redirects=True,
-                    max_redirects=self.max_redirects
+                    allow_redirects=True
                 )
             
             # Check response status
