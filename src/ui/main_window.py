@@ -927,7 +927,7 @@ Note: App passwords are more secure than regular passwords for applications like
         messagebox.showinfo("App Password Setup", help_text)
     
     def scan_inbox(self):
-        """Scan inbox for emails."""
+        """Scan inbox for emails using EmailScanService."""
         self.logger.info("Scan inbox clicked")
         
         # Get account
@@ -948,10 +948,9 @@ Note: App passwords are more secure than regular passwords for applications like
         
         # Create background task
         bg_task = BackgroundTask(self.root)
-        progress.set_cancel_callback(bg_task.cancel)
         
         def scan_task(progress_callback):
-            """Scan task to run in background."""
+            """Scan task to run in background using EmailScanService."""
             # Connect to email server (Gmail API or IMAP)
             self.logger.info(f"Connecting to email server for {account['email']}")
             client = self._create_email_client(account)
@@ -959,55 +958,23 @@ Note: App passwords are more secure than regular passwords for applications like
                 error_msg = client.get_error_message() or "Failed to connect to email server"
                 raise Exception(error_msg)
             
-            # Fetch email IDs
-            progress_callback(0, 100, "Fetching email list...")
-            email_ids = client.fetch_email_ids()
-            total = len(email_ids)
-            self.logger.info(f"Found {total} emails to process")
-            
-            if total == 0:
-                client.disconnect()
-                return []
-            
-            # Parse emails
-            parser = EmailParser()
-            emails = []
-            
-            for i, email_id in enumerate(email_ids):
-                if bg_task.is_cancelled:
-                    self.logger.info("Scan cancelled by user")
-                    break
+            try:
+                # Set email client in service factory
+                self.service_factory.set_email_client(client)
                 
-                # Fetch and parse
-                try:
-                    headers = client.fetch_headers([email_id])
-                    if headers:
-                        email_data = parser.parse_email(headers[0])
-                        emails.append(email_data)
-                except Exception as e:
-                    self.logger.warning(f"Error parsing email {email_id}: {str(e)}")
-                    continue
+                # Get scan service from factory
+                scan_service = self.service_factory.create_scan_service()
                 
-                # Update progress every 50 emails
-                if i % 50 == 0 or i == total - 1:
-                    progress_callback(
-                        i + 1, 
-                        total, 
-                        f"Processing email {i+1:,} of {total:,}"
-                    )
-            
-            client.disconnect()
-            
-            # Score and group
-            if not bg_task.is_cancelled and emails:
-                progress_callback(total, total, "Analyzing senders...")
-                scorer = EmailScorer(self.db)
-                grouper = EmailGrouper(scorer)
-                senders = grouper.group_by_sender(emails)
-                self.logger.info(f"Grouped into {len(senders)} unique senders")
+                # Set cancel callback to cancel the service
+                progress.set_cancel_callback(scan_service.cancel)
+                
+                # Run scan using service
+                senders = scan_service.scan_inbox(progress_callback=progress_callback)
+                
                 return senders
-            
-            return []
+            finally:
+                # Always disconnect client
+                client.disconnect()
         
         def on_progress(current, total, message):
             """Update progress dialog."""
