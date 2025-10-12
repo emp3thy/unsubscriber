@@ -17,16 +17,9 @@ from src.ui.progress_dialog import ProgressDialog
 from src.utils.threading_utils import BackgroundTask
 from src.utils.email_patterns import get_noreply_senders
 from src.email_client.credentials import CredentialManager
-from src.email_client.imap_client import IMAPClient
 from src.email_client.gmail_oauth import OAuthCredentialManager
 from src.email_client.auth import AuthStrategyFactory
-from src.email_client.email_parser import EmailParser
 from src.email_client.client_factory import create_email_client
-from src.scoring.scorer import EmailScorer
-from src.scoring.email_grouper import EmailGrouper
-from src.unsubscribe.strategy_chain import StrategyChain
-from src.unsubscribe.list_unsubscribe import ListUnsubscribeStrategy
-from src.unsubscribe.http_strategy import HTTPStrategy
 from src.services.service_factory import ServiceFactory
 
 
@@ -77,7 +70,7 @@ class MainWindow:
             account: Account dictionary from database with 'email', 'provider', etc.
             
         Returns:
-            Email client instance (GmailAPIClient or IMAPClient)
+            Email client instance implementing EmailClientInterface
         """
         return create_email_client(
             account=account,
