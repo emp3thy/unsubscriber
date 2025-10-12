@@ -13,88 +13,67 @@ from email.utils import parsedate_to_datetime
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from .gmail_connection import GmailConnectionManager
 
 
 class GmailAPIClient:
     """Gmail API client that mimics IMAP client interface."""
 
-    def __init__(self, email: str, oauth_manager):
+    def __init__(self, email: str, oauth_manager=None, connection_manager: GmailConnectionManager = None):
         """Initialize Gmail API client.
 
         Args:
             email: Gmail address
-            oauth_manager: OAuthCredentialManager instance for token handling
+            oauth_manager: OAuthCredentialManager instance (required if connection_manager not provided)
+            connection_manager: Optional pre-configured connection manager
+            
+        Raises:
+            ValueError: If neither oauth_manager nor connection_manager is provided
         """
         self.email = email
-        self.oauth_manager = oauth_manager
-        self.service = None
         self.provider = 'gmail'
         self.logger = logging.getLogger(__name__)
+        
+        # Use provided connection manager or create one
+        if connection_manager:
+            self.connection_manager = connection_manager
+        elif oauth_manager:
+            self.connection_manager = GmailConnectionManager(email, oauth_manager)
+        else:
+            raise ValueError("Either oauth_manager or connection_manager must be provided")
+        
+        # Maintain backward compatibility
+        self.oauth_manager = oauth_manager or (
+            connection_manager.oauth_manager if connection_manager else None
+        )
+        self.service = None
         self.error_message = None
 
     def connect(self) -> bool:
-        """Connect to Gmail API using OAuth2 credentials.
+        """Connect to Gmail API using the connection manager.
 
         Returns:
             True if connection successful, False otherwise
         """
-        try:
-            # Get OAuth tokens
-            tokens = self.oauth_manager.get_oauth_tokens(self.email)
-            if not tokens:
-                self.error_message = "No OAuth tokens found. Please re-authorize."
-                self.logger.error(self.error_message)
-                return False
-
-            # Get client credentials from gmail_oauth manager
-            gmail_oauth = self.oauth_manager.gmail_oauth
-
-            # Create credentials object
-            credentials = Credentials(
-                token=tokens['access_token'],
-                refresh_token=tokens['refresh_token'],
-                token_uri='https://oauth2.googleapis.com/token',
-                client_id=gmail_oauth._get_client_id(),
-                client_secret=gmail_oauth._get_client_secret(),
-                scopes=['https://www.googleapis.com/auth/gmail.modify']
-            )
-
-            # Check if token needs refresh
-            if gmail_oauth.is_token_expired(tokens.get('token_expiry')):
-                self.logger.info("Refreshing expired token...")
-                request = Request()
-                credentials.refresh(request)
-
-                # Update stored tokens
-                self.oauth_manager.store_oauth_tokens(
-                    self.email,
-                    credentials.token,
-                    credentials.refresh_token,
-                    credentials.expiry.isoformat() if credentials.expiry else None
-                )
-
-            # Build Gmail API service
-            self.service = build('gmail', 'v1', credentials=credentials, cache_discovery=False)
-            self.logger.info(f"Successfully connected to Gmail API for {self.email}")
-            return True
-
-        except Exception as e:
-            self.error_message = f"Failed to connect to Gmail API: {str(e)}"
-            self.logger.error(self.error_message)
-            return False
+        success = self.connection_manager.connect()
+        if success:
+            self.service = self.connection_manager.get_service()
+        else:
+            self.error_message = self.connection_manager.get_error_message()
+        return success
 
     def disconnect(self):
         """Close connection (no-op for Gmail API)."""
+        self.connection_manager.disconnect()
         self.service = None
-        self.logger.info("Disconnected from Gmail API")
 
     def is_connected(self) -> bool:
         """Check if connected to Gmail API."""
-        return self.service is not None
+        return self.connection_manager.is_connected()
 
     def get_error_message(self) -> str:
         """Get error message from last operation."""
-        return self.error_message or ""
+        return self.connection_manager.get_error_message()
 
     def get_email_count(self) -> int:
         """Get total number of emails in mailbox."""

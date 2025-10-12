@@ -387,11 +387,14 @@ These rules apply when executing a build plan that has been validated per Part A
 **When you CAN proceed to next step:**
 - ✅ Current step's acceptance criteria are fully met
 - ✅ All files specified in "Files to Create/Modify" have been created/modified
+- ✅ **Unit tests have been written for all code created/modified in this step**
+- ✅ All unit tests pass
 - ✅ Tests specified in the "Test" section have passed
 - ✅ Code has been committed to git
 
 **When you CANNOT proceed:**
 - ❌ Acceptance criteria not met
+- ❌ Unit tests not written for new/modified code
 - ❌ Tests fail
 - ❌ Code has errors or warnings
 - ❌ Files not created as specified
@@ -407,9 +410,16 @@ These rules apply when executing a build plan that has been validated per Part A
 **Must do for every step:**
 - ✅ Create or modify all specified files
 - ✅ Implement the functionality described in acceptance criteria
+- ✅ **CRITICAL: Write unit tests for any code created or altered in this step**
 - ✅ Test that the step works before marking complete
 - ✅ Commit to git after step completion with descriptive message
 - ✅ Update CURRENT_PHASE.md to mark step as complete (add ✅)
+
+**⛔ NEVER defer unit test creation to later steps or phases**
+- Unit tests MUST be written in the same step as the code they test
+- This is non-negotiable and critical to project success
+- If you create or modify a class, write unit tests for that class immediately
+- If you alter existing code, update or add unit tests in the same step
 
 **Commit message format:**
 ```
@@ -418,7 +428,8 @@ Phase X, Step X.X: [Brief description]
 - Acceptance criteria met:
   - [List what was achieved]
 - Files modified: [List files]
-- Test results: [Brief test outcome]
+- Unit tests: [Created/updated test file(s)]
+- Test results: [Brief test outcome - unit tests + manual tests]
 ```
 
 ---
@@ -426,6 +437,7 @@ Phase X, Step X.X: [Brief description]
 ## Rule 3: Stopping Conditions
 
 **MUST STOP immediately if:**
+- ⛔ Unit tests not written for code created/modified in current step
 - ⛔ Linter errors are introduced (must fix before proceeding)
 - ⛔ Import statements fail (missing dependencies must be resolved)
 - ⛔ Unhandled exceptions occur during testing
@@ -489,6 +501,15 @@ Phase X, Step X.X: [Brief description]
 
 ## Rule 5: Testing Requirements
 
+**⛔ CRITICAL RULE: Unit Tests Must Be Written in the Same Step**
+- **ALWAYS write unit tests for any code created or modified in a step**
+- **NEVER defer unit testing to later steps or phases**
+- This applies to ALL code: services, repositories, utilities, parsers, etc.
+- Unit tests MUST be in the same commit as the code they test
+- If you create a class in Step 3.2, write unit tests for that class in Step 3.2
+- If you modify a method in Step 4.1, update/add unit tests for that method in Step 4.1
+- No exceptions - this is a non-negotiable requirement
+
 **Manual testing approach:**
 - ✅ Test each step immediately after coding
 - ✅ Verify functionality works as expected
@@ -497,20 +518,34 @@ Phase X, Step X.X: [Brief description]
 - ✅ Document test results in commit message
 
 **What to test:**
-- Unit level: Individual functions/methods work correctly
-- Integration level: Components work together
-- User level: Feature works from user perspective
+- **Unit level (REQUIRED):** Individual functions/methods work correctly
+  - Test each method with valid inputs
+  - Test edge cases and error conditions
+  - Test boundary conditions
+  - Mock external dependencies
+- **Integration level:** Components work together
+- **User level:** Feature works from user perspective
+
+**Unit test requirements:**
+- ✅ Write tests in `tests/unit/` directory matching the source structure
+- ✅ Test file naming: `test_<module_name>.py`
+- ✅ Use pytest framework (or project's standard framework)
+- ✅ Achieve reasonable coverage (aim for >80% of new/modified code)
+- ✅ Include both success and failure cases
+- ✅ Mock external dependencies (databases, APIs, file systems)
+- ✅ Tests must be fast (< 1 second per test preferred)
 
 **When automated tests are NOT required:**
-- Early phases focused on infrastructure setup
-- MVP/prototype development
-- Exploratory/experimental features
+- UI code (may use manual testing instead)
+- Exploratory/experimental spike code
+- Scripts meant for one-time use
 
 **When automated tests ARE required:**
-- Core business logic that rarely changes
-- Bug fixes (write test that catches the bug first)
-- Public APIs or library functions
-- When specified in build plan
+- ✅ **ALL application code (services, repositories, utilities, parsers, etc.)**
+- ✅ Core business logic
+- ✅ Bug fixes (write test that catches the bug first)
+- ✅ Public APIs or library functions
+- ✅ Any code that will be maintained long-term
 
 ---
 
@@ -691,7 +726,9 @@ Thumbs.db
 
 - [ ] All steps in current phase marked complete ✅
 - [ ] All acceptance criteria verified
-- [ ] All tests passing
+- [ ] **Unit tests written for all code created/modified in the phase**
+- [ ] All unit tests passing
+- [ ] All manual tests passing
 - [ ] No linter errors or warnings
 - [ ] All files committed to git
 - [ ] Integration test passed (components work together)
