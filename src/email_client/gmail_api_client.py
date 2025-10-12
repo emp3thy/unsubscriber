@@ -7,17 +7,22 @@ better reliability and avoiding OAuth2 IMAP authentication issues.
 
 import logging
 import base64
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from .gmail_connection import GmailConnectionManager
+from .email_client_interface import EmailClientInterface
 
 
-class GmailAPIClient:
-    """Gmail API client that mimics IMAP client interface."""
+class GmailAPIClient(EmailClientInterface):
+    """Gmail API client that implements EmailClientInterface.
+    
+    Uses Google's official Gmail API instead of IMAP, providing
+    better reliability and avoiding OAuth2 IMAP authentication issues.
+    """
 
     def __init__(self, email: str, oauth_manager=None, connection_manager: GmailConnectionManager = None):
         """Initialize Gmail API client.

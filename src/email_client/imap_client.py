@@ -13,13 +13,15 @@ from email.header import decode_header
 from typing import Optional, List, Dict, Tuple
 from .auth.auth_strategy import IMAPAuthStrategy
 from .imap_connection import IMAPConnectionManager
+from .email_client_interface import EmailClientInterface
 
 
-class IMAPClient:
+class IMAPClient(EmailClientInterface):
     """IMAP client for Gmail and Outlook.
     
     Handles email operations using a pluggable connection manager.
     The connection manager handles authentication and connection lifecycle.
+    Implements EmailClientInterface for polymorphic usage.
     """
     
     def __init__(self, email: str, auth_strategy: IMAPAuthStrategy = None, 
