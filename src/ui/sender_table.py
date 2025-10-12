@@ -286,6 +286,39 @@ class SenderTable(FilterableTreeview):
         
         self.logger.debug("Table cleared")
     
+    def remove_senders(self, sender_emails: List[str]):
+        """
+        Remove specific senders from the table.
+        
+        Args:
+            sender_emails: List of sender email addresses to remove
+        """
+        if not sender_emails:
+            return
+        
+        # Convert to set for faster lookup
+        emails_to_remove = set(sender_emails)
+        
+        # Find and remove matching items
+        removed_count = 0
+        for item_id in list(self.sender_data.keys()):
+            sender_data = self.sender_data.get(item_id)
+            if sender_data and sender_data.get('sender') in emails_to_remove:
+                # Remove from tree view
+                self.tree.delete(item_id)
+                # Remove from data structures
+                del self.sender_data[item_id]
+                if item_id in self.score_breakdowns:
+                    del self.score_breakdowns[item_id]
+                removed_count += 1
+        
+        # Update filtered items list if using filters
+        if hasattr(self, 'store_all_items'):
+            self.store_all_items()
+        
+        self.logger.debug(f"Removed {removed_count} sender(s) from table")
+        self._hide_tooltip()
+    
     def _sort_by_column(self, col, reverse):
         """
         Sort table by column.

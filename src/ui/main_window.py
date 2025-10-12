@@ -530,27 +530,30 @@ class MainWindow:
                 deleted_senders = results['deleted_senders']
                 total_emails = results['total_emails_deleted']
                 failed_senders = results['failed_senders']
+                deleted_emails = results.get('deleted_sender_emails', [])
                 
                 # Show summary
                 self.logger.info(f"Must-delete deletion complete: {total_emails} emails from {deleted_senders} senders")
+                
+                # Remove deleted senders from sender table
+                if deleted_emails:
+                    self.sender_table.remove_senders(deleted_emails)
+                    self.logger.debug(f"Removed {len(deleted_emails)} sender(s) from sender table after must-delete")
+                
+                # Refresh the must-delete list
+                self._refresh_must_delete_list()
+                
+                # Update statistics
+                current_senders = []
+                if hasattr(self.sender_table, 'sender_data'):
+                    current_senders = list(self.sender_table.sender_data.values())
+                self.update_statistics(current_senders)
                 
                 # Show status in status bar
                 status_msg = f"Deleted {total_emails:,} emails from {deleted_senders} senders"
                 if failed_senders > 0:
                     status_msg += f" ({failed_senders} failed)"
                 self.status_bar.config(text=status_msg)
-                
-                # Refresh the must-delete list
-                self._refresh_must_delete_list()
-                
-                # Update statistics
-                current_senders = self.sender_table.get_all() if hasattr(self.sender_table, 'get_all') else []
-                self.update_statistics(current_senders)
-                
-                # Update status bar
-                self.status_bar.config(
-                    text=f"Deleted {total_emails:,} emails from {deleted_senders} senders"
-                )
             else:
                 self.status_bar.config(text="Deletion cancelled")
                 self.logger.info("Must-delete deletion cancelled by user")
@@ -651,16 +654,14 @@ class MainWindow:
                 total_emails = results['total_emails_deleted']
                 failed_senders = results['failed_senders']
                 skipped_senders = results['skipped_senders']
+                deleted_emails = results.get('deleted_sender_emails', [])
                 
                 self.logger.info(f"Auto-delete complete: {total_emails} emails from {deleted_senders} senders")
                 
-                # Show status in status bar
-                status_msg = f"Auto-deleted {total_emails:,} emails from {deleted_senders} senders"
-                if skipped_senders > 0:
-                    status_msg += f" ({skipped_senders} had no emails)"
-                if failed_senders > 0:
-                    status_msg += f" ({failed_senders} failed)"
-                self.status_bar.config(text=status_msg)
+                # Remove deleted senders from sender table
+                if deleted_emails:
+                    self.sender_table.remove_senders(deleted_emails)
+                    self.logger.debug(f"Removed {len(deleted_emails)} sender(s) from sender table after auto-delete")
                 
                 # Refresh the must-delete list
                 self._refresh_must_delete_list()
@@ -671,10 +672,13 @@ class MainWindow:
                     current_senders = list(self.sender_table.sender_data.values())
                 self.update_statistics(current_senders)
                 
-                # Update status bar
-                self.status_bar.config(
-                    text=f"Auto-deleted {total_emails:,} emails from {deleted_senders} senders"
-                )
+                # Show status in status bar
+                status_msg = f"Auto-deleted {total_emails:,} emails from {deleted_senders} senders"
+                if skipped_senders > 0:
+                    status_msg += f" ({skipped_senders} had no emails)"
+                if failed_senders > 0:
+                    status_msg += f" ({failed_senders} failed)"
+                self.status_bar.config(text=status_msg)
             else:
                 self.status_bar.config(text="Auto-delete cancelled")
                 self.logger.info("Auto-delete cancelled by user")
@@ -777,8 +781,23 @@ class MainWindow:
                 total_emails = results['total_emails_deleted']
                 failed_senders = results['failed_senders']
                 skipped_senders = results['skipped_senders']
+                deleted_emails = results.get('deleted_sender_emails', [])
                 
                 self.logger.info(f"Delete all no-reply complete: {total_emails} emails from {deleted_senders} senders")
+                
+                # Remove deleted senders from both tables
+                if deleted_emails:
+                    self.sender_table.remove_senders(deleted_emails)
+                    self.logger.debug(f"Removed {len(deleted_emails)} no-reply sender(s) from sender table")
+                
+                # Clear the no-reply table since emails are deleted
+                self.noreply_table.clear()
+                
+                # Update statistics
+                current_senders = []
+                if hasattr(self.sender_table, 'sender_data'):
+                    current_senders = list(self.sender_table.sender_data.values())
+                self.update_statistics(current_senders)
                 
                 # Show status in status bar
                 status_msg = f"Deleted {total_emails:,} emails from {deleted_senders} no-reply senders"
@@ -787,9 +806,6 @@ class MainWindow:
                 if failed_senders > 0:
                     status_msg += f" ({failed_senders} failed)"
                 self.status_bar.config(text=status_msg)
-                
-                # Clear the no-reply table since emails are deleted
-                self.noreply_table.clear()
             else:
                 self.status_bar.config(text="Delete all no-reply cancelled")
                 self.logger.info("Delete all no-reply cancelled by user")
@@ -1185,8 +1201,20 @@ Note: App passwords are more secure than regular passwords for applications like
                 deleted_senders = results['deleted_senders']
                 total_emails = results['total_emails_deleted']
                 failed_senders = results['failed_senders']
+                deleted_emails = results.get('deleted_sender_emails', [])
                 
                 self.logger.info(f"Deletion complete: {total_emails} emails from {deleted_senders} senders")
+                
+                # Remove deleted senders from the table
+                if deleted_emails:
+                    self.sender_table.remove_senders(deleted_emails)
+                    self.logger.debug(f"Removed {len(deleted_emails)} sender(s) from UI table")
+                
+                # Update statistics
+                current_senders = []
+                if hasattr(self.sender_table, 'sender_data'):
+                    current_senders = list(self.sender_table.sender_data.values())
+                self.update_statistics(current_senders)
                 
                 # Update status bar
                 status_msg = f"Deleted {total_emails:,} emails from {deleted_senders} senders"

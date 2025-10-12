@@ -73,7 +73,8 @@ class EmailDeletionService:
             'deleted_senders': 0,
             'total_emails_deleted': 0,
             'failed_senders': 0,
-            'skipped_senders': 0
+            'skipped_senders': 0,
+            'deleted_sender_emails': []  # Track which senders were successfully deleted
         }
         
         total = len(senders)
@@ -113,6 +114,7 @@ class EmailDeletionService:
                 if deleted_count > 0:
                     results['deleted_senders'] += 1
                     results['total_emails_deleted'] += deleted_count
+                    results['deleted_sender_emails'].append(sender_email)  # Track deleted sender
                     self.logger.info(
                         f"Deleted {deleted_count} emails from {sender_email}"
                     )
