@@ -993,9 +993,18 @@ Note: App passwords are more secure than regular passwords for applications like
             # Set cancel callback to cancel the service
             progress.set_cancel_callback(unsubscribe_service.cancel)
             
+            # Convert sender data format for service (map sample_links to unsubscribe_links)
+            senders_for_service = []
+            for sender_data in selected:
+                service_format = sender_data.copy()
+                # Service expects 'unsubscribe_links' but EmailGrouper provides 'sample_links'
+                if 'sample_links' in sender_data and sender_data['sample_links']:
+                    service_format['unsubscribe_links'] = sender_data['sample_links']
+                senders_for_service.append(service_format)
+            
             # Run unsubscribe using service
             service_results = unsubscribe_service.unsubscribe_from_senders(
-                selected, 
+                senders_for_service, 
                 progress_callback=progress_callback
             )
             
