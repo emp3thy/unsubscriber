@@ -1013,7 +1013,7 @@ Note: App passwords are more secure than regular passwords for applications like
         self.delete_btn.config(state=tk.NORMAL if selected else tk.DISABLED)
     
     def unsubscribe_selected(self):
-        """Unsubscribe from selected senders."""
+        """Unsubscribe from selected senders using UnsubscribeService."""
         selected = self.sender_table.get_selected()
         if not selected:
             return
@@ -1043,74 +1043,56 @@ Note: App passwords are more secure than regular passwords for applications like
         
         # Create background task
         bg_task = BackgroundTask(self.root)
-        progress.set_cancel_callback(bg_task.cancel)
         
         def unsubscribe_task(progress_callback):
-            """Unsubscribe task to run in background."""
-            # Create strategy chain
-            chain = StrategyChain(self.db)
-            list_unsub_strategy = ListUnsubscribeStrategy()
-            http_strategy = HTTPStrategy()
-            chain.add_strategy(list_unsub_strategy)
-            chain.add_strategy(http_strategy)
+            """Unsubscribe task to run in background using UnsubscribeService."""
+            # Get unsubscribe service from factory
+            unsubscribe_service = self.service_factory.create_unsubscribe_service()
             
+            # Set cancel callback to cancel the service
+            progress.set_cancel_callback(unsubscribe_service.cancel)
+            
+            # Run unsubscribe using service
+            service_results = unsubscribe_service.unsubscribe_from_senders(
+                selected, 
+                progress_callback=progress_callback
+            )
+            
+            # Convert service result format to UI format and update sender table statuses
             results = {
-                'success': 0, 
-                'failed': 0,
-                'skipped': 0,
-                'details': [],
-                'successful_senders': []  # Track successful senders for deletion option
+                'success': service_results['success_count'],
+                'failed': service_results['failed_count'],
+                'skipped': service_results['skipped_count'],
+                'details': service_results['details'],
+                'successful_senders': []  # Build UI-specific format
             }
             
-            for i, sender_data in enumerate(selected):
-                if bg_task.is_cancelled:
-                    self.logger.info("Unsubscribe cancelled by user")
-                    break
-                
-                sender = sender_data.get('sender', 'unknown')
-                progress_callback(i, count, f"Processing {sender}")
-                
-                try:
-                    # Check if any strategy can handle this email
-                    can_unsubscribe = (list_unsub_strategy.can_handle(sender_data) or 
-                                      http_strategy.can_handle(sender_data))
+            # Update sender table statuses based on results
+            for detail in service_results['details']:
+                # Parse detail format: "sender@example.com: Result message"
+                if ': ' in detail:
+                    sender_email, message = detail.split(': ', 1)
+                    sender_email = sender_email.strip()
                     
-                    if not can_unsubscribe:
-                        # Skip this sender - no unsubscribe method available
-                        results['skipped'] += 1
-                        sender_data['status'] = 'Skipped (no unsubscribe link)'
-                        self.sender_table.update_sender_status(sender, 'Skipped (no unsubscribe link)')
-                        results['details'].append(f"⊘ {sender}: No unsubscribe link found (skipped)")
-                        self.logger.info(f"Skipped {sender}: No unsubscribe method available")
-                        continue
-                    
-                    # Execute unsubscribe
-                    success, message, strategy = chain.execute(sender_data)
-                    
-                    if success:
-                        results['success'] += 1
+                    if 'Success' in message:
+                        status = f'Unsubscribed ({message})'
+                        self.sender_table.update_sender_status(sender_email, status)
+                    elif 'Skipped' in message or 'No unsubscribe method' in message:
+                        self.sender_table.update_sender_status(sender_email, 'Skipped (no unsubscribe link)')
+                    elif 'Failed' in message or 'Error' in message:
+                        short_msg = message[:30] + "..." if len(message) > 30 else message
+                        self.sender_table.update_sender_status(sender_email, f'Failed: {short_msg}')
+            
+            # Build successful_senders list for deletion offer
+            for sender_email in service_results['successful_senders']:
+                # Find corresponding sender_data to get email_count
+                for sender_data in selected:
+                    if sender_data.get('sender') == sender_email:
                         results['successful_senders'].append({
-                            'sender': sender,
+                            'sender': sender_email,
                             'email_count': sender_data.get('total_count', 0)
                         })
-                        sender_data['status'] = f'Unsubscribed ({strategy})'
-                        self.sender_table.update_sender_status(sender, f'Unsubscribed ({strategy})')
-                        results['details'].append(f"✓ {sender}: {message}")
-                        self.logger.info(f"Unsubscribe succeeded for {sender}: {strategy}")
-                    else:
-                        results['failed'] += 1
-                        short_msg = message[:30] + "..." if len(message) > 30 else message
-                        sender_data['status'] = f'Failed: {short_msg}'
-                        self.sender_table.update_sender_status(sender, f'Failed: {short_msg}')
-                        results['details'].append(f"✗ {sender}: {message}")
-                        self.logger.warning(f"Unsubscribe failed for {sender}: {message}")
-                
-                except Exception as e:
-                    results['failed'] += 1
-                    sender_data['status'] = 'Unsubscribe failed'
-                    self.sender_table.update_sender_status(sender, 'Unsubscribe failed')
-                    results['details'].append(f"✗ {sender}: Unsubscribe failed")
-                    self.logger.error(f"Unsubscribe error for {sender}: {e}")
+                        break
             
             return results
         
