@@ -124,7 +124,7 @@ Phase X, Step X.X: [Brief description]
 - ✅ Step 6.1: Inject ServiceFactory into MainWindow (COMPLETED 2025-10-12)
 - ✅ Step 6.2: Refactor scan_inbox() to Use EmailScanService (COMPLETED 2025-10-12)
 - ✅ Step 6.3: Refactor unsubscribe_selected() to Use UnsubscribeService (COMPLETED 2025-10-12)
-- ❌ Step 6.4: Refactor Deletion Methods to Use EmailDeletionService
+- ✅ Step 6.4: Refactor Deletion Methods to Use EmailDeletionService (COMPLETED 2025-10-12)
 - ❌ Step 6.5: Remove Dead Code and Simplify MainWindow
 
 ---

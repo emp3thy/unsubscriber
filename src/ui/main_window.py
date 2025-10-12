@@ -448,7 +448,7 @@ class MainWindow:
         self.delete_selected_btn.config(state=tk.NORMAL if selected else tk.DISABLED)
     
     def delete_selected_must_delete(self):
-        """Delete emails from selected must-delete senders."""
+        """Delete emails from selected must-delete senders using EmailDeletionService."""
         selected = self.must_delete_table.get_selected()
         if not selected:
             return
@@ -483,10 +483,9 @@ class MainWindow:
         
         # Create background task
         bg_task = BackgroundTask(self.root)
-        progress.set_cancel_callback(bg_task.cancel)
         
         def delete_task(progress_callback):
-            """Delete emails in background thread."""
+            """Delete emails in background thread using EmailDeletionService."""
             # Get account and connect
             account = self.db.get_primary_account()
             if not account:
@@ -497,40 +496,29 @@ class MainWindow:
                 error_msg = client.get_error_message() or "Failed to connect to email server"
                 raise Exception(error_msg)
             
-            results = {
-                'deleted_senders': 0,
-                'failed_senders': 0,
-                'total_emails_deleted': 0,
-                'removed_from_list': []
-            }
-            
             try:
-                for i, sender_info in enumerate(selected):
-                    if bg_task.is_cancelled:
-                        break
-                    
-                    sender = sender_info['email']
-                    progress_callback(i, sender_count, f"Deleting emails from {sender}")
-                    
-                    # Delete emails from this sender
-                    deleted, message = client.delete_emails_from_sender(sender, self.db)
-                    
-                    if deleted > 0:
-                        results['deleted_senders'] += 1
-                        results['total_emails_deleted'] += deleted
-                        results['removed_from_list'].append(sender)
-                        self.logger.info(f"Deleted {deleted} emails from {sender}")
-                        
-                        # Remove from must-delete list in database
-                        self.db.remove_from_must_delete(sender)
-                    else:
-                        results['failed_senders'] += 1
-                        self.logger.warning(f"Failed to delete emails from {sender}: {message}")
+                # Set email client in service factory
+                self.service_factory.set_email_client(client)
                 
+                # Get deletion service from factory
+                deletion_service = self.service_factory.create_deletion_service()
+                
+                # Set cancel callback to cancel the service
+                progress.set_cancel_callback(deletion_service.cancel)
+                
+                # Convert selected format ('email' key) to service format ('sender' key)
+                senders = [{'sender': s['email']} for s in selected]
+                
+                # Run deletion using service (service handles must-delete list removal)
+                results = deletion_service.delete_from_senders(
+                    senders,
+                    progress_callback=progress_callback
+                )
+                
+                return results
             finally:
+                # Always disconnect client
                 client.disconnect()
-            
-            return results
         
         def on_progress(current, total, message):
             """Update progress dialog."""
@@ -578,7 +566,7 @@ class MainWindow:
         bg_task.run(delete_task, on_progress, on_complete)
     
     def auto_delete_must_delete(self):
-        """Auto-delete all emails from all senders in the must delete list."""
+        """Auto-delete all emails from all senders in the must delete list using EmailDeletionService."""
         # Get all senders from must delete list
         all_senders = self.db.get_must_delete_senders()
         
@@ -618,10 +606,9 @@ class MainWindow:
         
         # Create background task
         bg_task = BackgroundTask(self.root)
-        progress.set_cancel_callback(bg_task.cancel)
         
         def delete_task(progress_callback):
-            """Delete emails in background thread."""
+            """Delete emails in background thread using EmailDeletionService."""
             # Get account and connect
             account = self.db.get_primary_account()
             if not account:
@@ -632,49 +619,25 @@ class MainWindow:
                 error_msg = client.get_error_message() or "Failed to connect to email server"
                 raise Exception(error_msg)
             
-            results = {
-                'deleted_senders': 0,
-                'failed_senders': 0,
-                'skipped_senders': 0,
-                'total_emails_deleted': 0,
-                'removed_from_list': []
-            }
-            
             try:
-                for i, sender_info in enumerate(all_senders):
-                    if bg_task.is_cancelled:
-                        break
-                    
-                    sender = sender_info['email']
-                    progress_callback(i, sender_count, f"Checking {sender} for emails...")
-                    
-                    # Delete emails from this sender
-                    deleted, message = client.delete_emails_from_sender(sender, self.db)
-                    
-                    if deleted > 0:
-                        results['deleted_senders'] += 1
-                        results['total_emails_deleted'] += deleted
-                        results['removed_from_list'].append(sender)
-                        self.logger.info(f"Auto-deleted {deleted} emails from {sender}")
-                        
-                        # Remove from must-delete list in database
-                        self.db.remove_from_must_delete(sender)
-                    elif deleted == 0:
-                        # No emails found from this sender
-                        results['skipped_senders'] += 1
-                        self.logger.info(f"No emails found from {sender}")
-                        
-                        # Still remove from must-delete list since there's nothing to delete
-                        self.db.remove_from_must_delete(sender)
-                        results['removed_from_list'].append(sender)
-                    else:
-                        results['failed_senders'] += 1
-                        self.logger.warning(f"Failed to delete emails from {sender}: {message}")
+                # Set email client in service factory
+                self.service_factory.set_email_client(client)
                 
+                # Get deletion service from factory
+                deletion_service = self.service_factory.create_deletion_service()
+                
+                # Set cancel callback to cancel the service
+                progress.set_cancel_callback(deletion_service.cancel)
+                
+                # Run deletion using service (service handles must-delete list automatically)
+                results = deletion_service.delete_from_must_delete_list(
+                    progress_callback=progress_callback
+                )
+                
+                return results
             finally:
+                # Always disconnect client
                 client.disconnect()
-            
-            return results
         
         def on_progress(current, total, message):
             """Update progress dialog."""
@@ -727,7 +690,7 @@ class MainWindow:
         bg_task.run(delete_task, on_progress, on_complete)
     
     def delete_all_noreply(self):
-        """Delete all emails from all no-reply senders in the table."""
+        """Delete all emails from all no-reply senders in the table using EmailDeletionService."""
         # Get all senders from no-reply table
         all_senders = self.noreply_table.get_all()
         
@@ -769,10 +732,9 @@ class MainWindow:
         
         # Create background task
         bg_task = BackgroundTask(self.root)
-        progress.set_cancel_callback(bg_task.cancel)
         
         def delete_task(progress_callback):
-            """Delete emails in background thread."""
+            """Delete emails in background thread using EmailDeletionService."""
             # Get account and connect
             account = self.db.get_primary_account()
             if not account:
@@ -783,40 +745,26 @@ class MainWindow:
                 error_msg = client.get_error_message() or "Failed to connect to email server"
                 raise Exception(error_msg)
             
-            results = {
-                'deleted_senders': 0,
-                'failed_senders': 0,
-                'skipped_senders': 0,
-                'total_emails_deleted': 0
-            }
-            
             try:
-                for i, sender_info in enumerate(all_senders):
-                    if bg_task.is_cancelled:
-                        break
-                    
-                    sender = sender_info.get('sender', 'unknown')
-                    progress_callback(i, sender_count, f"Deleting emails from {sender}...")
-                    
-                    # Delete emails from this sender
-                    deleted, message = client.delete_emails_from_sender(sender, self.db)
-                    
-                    if deleted > 0:
-                        results['deleted_senders'] += 1
-                        results['total_emails_deleted'] += deleted
-                        self.logger.info(f"Deleted {deleted} emails from {sender}")
-                    elif deleted == 0:
-                        # No emails found from this sender
-                        results['skipped_senders'] += 1
-                        self.logger.info(f"No emails found from {sender}")
-                    else:
-                        results['failed_senders'] += 1
-                        self.logger.warning(f"Failed to delete emails from {sender}: {message}")
+                # Set email client in service factory
+                self.service_factory.set_email_client(client)
                 
+                # Get deletion service from factory
+                deletion_service = self.service_factory.create_deletion_service()
+                
+                # Set cancel callback to cancel the service
+                progress.set_cancel_callback(deletion_service.cancel)
+                
+                # Run deletion using service
+                results = deletion_service.delete_from_senders(
+                    all_senders,
+                    progress_callback=progress_callback
+                )
+                
+                return results
             finally:
+                # Always disconnect client
                 client.disconnect()
-            
-            return results
         
         def on_progress(current, total, message):
             """Update progress dialog."""
@@ -1147,7 +1095,7 @@ Note: App passwords are more secure than regular passwords for applications like
         bg_task.run(unsubscribe_task, on_progress, on_complete)
     
     def delete_selected(self):
-        """Delete emails from selected senders."""
+        """Delete emails from selected senders using EmailDeletionService."""
         selected = self.sender_table.get_selected()
         if not selected:
             return
@@ -1183,10 +1131,9 @@ Note: App passwords are more secure than regular passwords for applications like
         
         # Create background task
         bg_task = BackgroundTask(self.root)
-        progress.set_cancel_callback(bg_task.cancel)
         
         def delete_task(progress_callback):
-            """Delete emails in background thread."""
+            """Delete emails in background thread using EmailDeletionService."""
             # Get account and connect
             account = self.db.get_primary_account()
             if not account:
@@ -1197,39 +1144,26 @@ Note: App passwords are more secure than regular passwords for applications like
                 error_msg = client.get_error_message() or "Failed to connect to email server"
                 raise Exception(error_msg)
             
-            results = {
-                'deleted_senders': 0,
-                'failed_senders': 0,
-                'total_emails_deleted': 0,
-                'deleted_list': []
-            }
-            
             try:
-                for i, sender_data in enumerate(selected):
-                    if bg_task.is_cancelled:
-                        break
-                    
-                    sender = sender_data.get('sender', 'unknown')
-                    progress_callback(i, sender_count, f"Deleting emails from {sender}")
-                    
-                    # Delete emails from this sender
-                    deleted, message = client.delete_emails_from_sender(sender, self.db)
-                    
-                    if deleted > 0:
-                        results['deleted_senders'] += 1
-                        results['total_emails_deleted'] += deleted
-                        results['deleted_list'].append(sender)
-                        self.sender_table.update_sender_status(sender, f'Deleted ({deleted} emails)')
-                        self.logger.info(f"Deleted {deleted} emails from {sender}")
-                    else:
-                        results['failed_senders'] += 1
-                        self.sender_table.update_sender_status(sender, f'Delete failed')
-                        self.logger.warning(f"Failed to delete emails from {sender}: {message}")
+                # Set email client in service factory
+                self.service_factory.set_email_client(client)
                 
+                # Get deletion service from factory
+                deletion_service = self.service_factory.create_deletion_service()
+                
+                # Set cancel callback to cancel the service
+                progress.set_cancel_callback(deletion_service.cancel)
+                
+                # Run deletion using service
+                results = deletion_service.delete_from_senders(
+                    selected,
+                    progress_callback=progress_callback
+                )
+                
+                return results
             finally:
+                # Always disconnect client
                 client.disconnect()
-            
-            return results
         
         def on_progress(current, total, message):
             """Update progress dialog."""
