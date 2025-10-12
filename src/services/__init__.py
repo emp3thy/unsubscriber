@@ -8,8 +8,10 @@ Services are designed for dependency injection and testability.
 """
 
 from src.services.email_scan_service import EmailScanService
+from src.services.unsubscribe_service import UnsubscribeService
 
 __all__ = [
     'EmailScanService',
+    'UnsubscribeService',
 ]
 

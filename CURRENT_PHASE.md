@@ -199,8 +199,8 @@ Phase X, Step X.X: [Brief description]
 
 **Phase Progress:**
 - ✅ Step 3.1: Create EmailScanService
-- 🔄 Step 3.2: Create UnsubscribeService
-- ❌ Step 3.3: Create EmailDeletionService
+- ✅ Step 3.2: Create UnsubscribeService
+- 🔄 Step 3.3: Create EmailDeletionService
 - ❌ Step 3.4: Create ServiceFactory
 
 ---
@@ -372,14 +372,14 @@ Extract unsubscribe logic from MainWindow into UnsubscribeService. This service 
 - Supports cancellation via threading event
 
 **Acceptance Criteria:**
-- ❌ UnsubscribeService class created with dependency injection
-- ❌ Can unsubscribe from multiple senders
-- ❌ Returns detailed results dictionary
-- ❌ Progress callback called for each sender
-- ❌ Checks whitelist and skips whitelisted senders
-- ❌ Logs all attempts (success and failure)
-- ❌ Handles senders without unsubscribe methods
-- ❌ Can be cancelled mid-operation
+- ✅ UnsubscribeService class created with dependency injection
+- ✅ Can unsubscribe from multiple senders
+- ✅ Returns detailed results dictionary
+- ✅ Progress callback called for each sender
+- ✅ Checks whitelist and skips whitelisted senders
+- ✅ Logs all attempts (success and failure)
+- ✅ Handles senders without unsubscribe methods
+- ✅ Can be cancelled mid-operation
 
 **Files to Create:**
 - `src/services/unsubscribe_service.py` - Unsubscribe service
