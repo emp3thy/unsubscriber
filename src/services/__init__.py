@@ -10,10 +10,12 @@ Services are designed for dependency injection and testability.
 from src.services.email_scan_service import EmailScanService
 from src.services.unsubscribe_service import UnsubscribeService
 from src.services.email_deletion_service import EmailDeletionService
+from src.services.service_factory import ServiceFactory
 
 __all__ = [
     'EmailScanService',
     'UnsubscribeService',
     'EmailDeletionService',
+    'ServiceFactory',
 ]
 
